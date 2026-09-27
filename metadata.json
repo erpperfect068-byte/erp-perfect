@@ -1,0 +1,6 @@
+{
+  "name": "نظام التخليص الجمركي - Customs Clearance MS",
+  "description": "نظام إدارة التخليص الجمركي والمحاسبة المالية والتدقيق لمكتب تخليص جمركي مصري",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
