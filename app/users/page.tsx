@@ -127,6 +127,36 @@ export default function UsersPage() {
     }
   };
 
+  const handleToggleUserStatus = async (userId: string, currentActive: boolean) => {
+    setUpdatingUserId(userId);
+    const action = currentActive ? 'suspend' : 'restore';
+    try {
+      const token = await getAuthToken();
+      const res = await fetch(`/api/users/${userId}/status`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ action }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'فشلت عملية تغيير حالة الحساب');
+      }
+
+      showToast(data.message || 'تم تحديث حالة الحساب بنجاح', 'success');
+      setUsers((prev) =>
+        prev.map((u) => (u.id === userId ? { ...u, isActive: !currentActive } : u))
+      );
+    } catch (err: any) {
+      showToast(err.message || 'حدث خطأ أثناء تغيير حالة الحساب', 'error');
+    } finally {
+      setUpdatingUserId(null);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!emailInput) {
@@ -278,6 +308,19 @@ export default function UsersPage() {
                           >
                             {roleLabels[user.role]?.label || user.role}
                           </span>
+                        )}
+                        {canManageRoles && user.id !== dbUser?.id && (
+                          <button
+                            onClick={() => handleToggleUserStatus(user.id, user.isActive)}
+                            disabled={updatingUserId === user.id}
+                            className={`px-2.5 py-1 rounded-xl text-xs font-bold border transition ${
+                              user.isActive
+                                ? 'bg-red-50 text-red-700 border-red-200 hover:bg-red-100'
+                                : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                            }`}
+                          >
+                            {user.isActive ? 'إيقاف الحساب' : 'إعادة التفعيل'}
+                          </button>
                         )}
                       </div>
                     </div>

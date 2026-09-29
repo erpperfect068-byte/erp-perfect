@@ -135,7 +135,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       const data = await res.json();
       if (!res.ok) {
+        if (
+          res.status === 403 ||
+          data.error?.includes('deactivated') ||
+          data.error?.includes('banned') ||
+          data.error?.includes('user_banned')
+        ) {
+          throw new Error('تم إيقاف هذا الحساب، يرجى التواصل مع مدير النظام.');
+        }
         throw new Error(data.error || 'فشلت عملية التحقق من الحساب');
+      }
+
+      if (data.user && data.user.isActive === false) {
+        throw new Error('تم إيقاف هذا الحساب، يرجى التواصل مع مدير النظام.');
       }
 
       setDbUser(data.user);

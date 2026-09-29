@@ -114,7 +114,11 @@ export default function LoginPage() {
           {error && (
             <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 flex items-start gap-3 text-sm">
               <ShieldAlert className="h-5 w-5 shrink-0 mt-0.5" />
-              <div>{error}</div>
+              <div>
+                {error.includes('user_banned') || error.toLowerCase().includes('banned')
+                  ? 'تم إيقاف هذا الحساب، يرجى التواصل مع مدير النظام.'
+                  : error}
+              </div>
             </div>
           )}
 
