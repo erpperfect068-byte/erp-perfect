@@ -1,82 +1,98 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/src/db/index';
-import { ports, agencies, contractors, statuses } from '@/src/db/schema';
-import { logAudit } from '@/lib/audit';
-import { verifyAuth, checkRole } from '@/lib/auth-server';
+import { getAuthUser } from '@/lib/supabase-server';
 
 export async function GET(req: NextRequest) {
   try {
-    const { user, error, status } = await verifyAuth(req);
+    const { user, error, status, supabase } = await getAuthUser(req);
     if (error || !user) {
-      return NextResponse.json({ error: error || 'Unauthorized' }, { status });
+      return NextResponse.json({ error: error || 'غير مصرح' }, { status });
     }
 
-    // Load tables
-    const portsList = await db.select().from(ports);
-    const agenciesList = await db.select().from(agencies);
-    const contractorsList = await db.select().from(contractors);
-    const statusesList = await db.select().from(statuses);
+    // Fetch all lookup tables via user-authenticated Supabase client (RLS enforced)
+    const [portsRes, agenciesRes, contractorsRes, statusesRes] = await Promise.all([
+      supabase.from('ports').select('*').order('name'),
+      supabase.from('agencies').select('*').order('name'),
+      supabase.from('contractors').select('*').order('name'),
+      supabase.from('statuses').select('*').order('name'),
+    ]);
+
+    if (portsRes.error) throw portsRes.error;
+    if (agenciesRes.error) throw agenciesRes.error;
+    if (contractorsRes.error) throw contractorsRes.error;
+    if (statusesRes.error) throw statusesRes.error;
 
     return NextResponse.json({
-      ports: portsList,
-      agencies: agenciesList,
-      contractors: contractorsList,
-      statuses: statusesList,
+      ports: portsRes.data || [],
+      agencies: agenciesRes.data || [],
+      contractors: contractorsRes.data || [],
+      statuses: statusesRes.data || [],
     });
-  } catch (error) {
-    console.error('Failed to load settings:', error);
-    return NextResponse.json({ error: 'Failed to retrieve settings' }, { status: 500 });
+  } catch (error: any) {
+    console.error('Failed to load settings from Supabase:', error);
+    return NextResponse.json(
+      { error: error.message || 'فشل جلب إعدادات النظام من قاعدة البيانات' },
+      { status: 500 }
+    );
   }
 }
 
 export async function POST(req: NextRequest) {
   try {
-    const { user, error, status } = await verifyAuth(req);
+    const { user, error, status, supabase } = await getAuthUser(req);
     if (error || !user) {
-      return NextResponse.json({ error: error || 'Unauthorized' }, { status });
-    }
-
-    // Only admin can change global operational settings
-    if (!checkRole(user, ['admin'])) {
-      return NextResponse.json({ error: 'غير مصرح - تعديل الإعدادات متاح لمدير النظام فقط' }, { status: 403 });
+      return NextResponse.json({ error: error || 'غير مصرح' }, { status });
     }
 
     const body = await req.json();
     const { type, name, color } = body;
 
     if (!type || !name) {
-      return NextResponse.json({ error: 'Type and name are required' }, { status: 400 });
+      return NextResponse.json({ error: 'النوع والاسم مطلوبة' }, { status: 400 });
     }
 
-    let insertedRecord;
+    let result;
 
     switch (type) {
-      case 'port':
-        [insertedRecord] = await db.insert(ports).values({ name }).returning();
-        await logAudit({ tableName: 'ports', recordId: insertedRecord.id, action: 'INSERT', newData: insertedRecord, userEmail: user.email, req });
+      case 'port': {
+        const { data, error: err } = await supabase.from('ports').insert([{ name }]).select().single();
+        if (err) throw err;
+        result = data;
         break;
-      case 'agency':
-        [insertedRecord] = await db.insert(agencies).values({ name }).returning();
-        await logAudit({ tableName: 'agencies', recordId: insertedRecord.id, action: 'INSERT', newData: insertedRecord, userEmail: user.email, req });
+      }
+      case 'agency': {
+        const { data, error: err } = await supabase.from('agencies').insert([{ name }]).select().single();
+        if (err) throw err;
+        result = data;
         break;
-      case 'contractor':
-        [insertedRecord] = await db.insert(contractors).values({ name }).returning();
-        await logAudit({ tableName: 'contractors', recordId: insertedRecord.id, action: 'INSERT', newData: insertedRecord, userEmail: user.email, req });
+      }
+      case 'contractor': {
+        const { data, error: err } = await supabase.from('contractors').insert([{ name }]).select().single();
+        if (err) throw err;
+        result = data;
         break;
-      case 'status':
-        [insertedRecord] = await db.insert(statuses).values({ name, color: color || '#6b7280' }).returning();
-        await logAudit({ tableName: 'statuses', recordId: insertedRecord.id, action: 'INSERT', newData: insertedRecord, userEmail: user.email, req });
+      }
+      case 'status': {
+        const { data, error: err } = await supabase.from('statuses').insert([{ name, color: color || '#6b7280' }]).select().single();
+        if (err) throw err;
+        result = data;
         break;
+      }
       default:
-        return NextResponse.json({ error: 'Invalid setting type' }, { status: 400 });
+        return NextResponse.json({ error: 'نوع الإعداد غير صالح' }, { status: 400 });
     }
 
-    return NextResponse.json(insertedRecord);
+    return NextResponse.json(result);
   } catch (error: any) {
-    console.error('Failed to add setting:', error);
-    if (error.code === '23505') { // Unique constraint violation in postgres
+    console.error('Failed to add setting to Supabase:', error);
+    if (error.code === '23505') {
       return NextResponse.json({ error: 'هذا السجل متواجد بالفعل بقاعدة البيانات' }, { status: 400 });
     }
-    return NextResponse.json({ error: 'Failed to create settings record' }, { status: 500 });
+    if (error.code === '42501' || error.message?.includes('violates row-level security')) {
+      return NextResponse.json({ error: 'غير مصرح لك بإضافة هذا السجل' }, { status: 403 });
+    }
+    return NextResponse.json(
+      { error: error.message || 'فشل إضافة السجل لقاعدة البيانات' },
+      { status: 500 }
+    );
   }
 }

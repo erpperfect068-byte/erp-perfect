@@ -1,123 +1,102 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/src/db/index';
-import { clients, clientItems, clientPricing } from '@/src/db/schema';
-import { eq, desc } from 'drizzle-orm';
-import { logAudit } from '@/lib/audit';
-import { verifyAuth } from '@/lib/auth-server';
+import { getAuthUser } from '@/lib/supabase-server';
 
 // List Clients
 export async function GET(req: NextRequest) {
   try {
-    const { user, error, status } = await verifyAuth(req);
+    const { user, error, status, supabase } = await getAuthUser(req);
     if (error || !user) {
-      return NextResponse.json({ error: error || 'Unauthorized' }, { status });
+      return NextResponse.json({ error: error || 'غير مصرح' }, { status });
     }
 
-    // Fetch clients
-    const clientsList = await db.select().from(clients).where(eq(clients.isActive, true)).orderBy(desc(clients.createdAt));
+    // Query clients with nested client_items and client_pricing using Supabase foreign keys
+    const { data: clientsList, error: dbError } = await supabase
+      .from('clients')
+      .select('*, items:client_items(*), pricing:client_pricing(*)')
+      .eq('is_active', true)
+      .order('created_at', { ascending: false });
 
-    // For each client, fetch items and pricing rules
-    const fullClients = await Promise.all(
-      clientsList.map(async (client) => {
-        const items = await db.select().from(clientItems).where(eq(clientItems.clientId, client.id));
-        const pricing = await db.select().from(clientPricing).where(eq(clientPricing.clientId, client.id));
-        return {
-          ...client,
-          items,
-          pricing,
-        };
-      })
-    );
+    if (dbError) throw dbError;
 
-    return NextResponse.json(fullClients);
-  } catch (error) {
+    // Map properties for camelCase frontend compatibility
+    const formattedClients = (clientsList || []).map((c: any) => ({
+      ...c,
+      contactPerson: c.contact_person,
+      taxNumber: c.tax_number,
+      isActive: c.is_active,
+      createdAt: c.created_at,
+      updatedAt: c.updated_at,
+      pricing: (c.pricing || []).map((p: any) => ({
+        ...p,
+        serviceName: p.service_name,
+        price: p.default_amount,
+        isActive: p.is_active,
+      })),
+    }));
+
+    return NextResponse.json(formattedClients);
+  } catch (error: any) {
     console.error('Failed to list clients:', error);
-    return NextResponse.json({ error: 'Failed to retrieve clients list' }, { status: 500 });
+    if (error.code === '42501' || error.message?.includes('violates row-level security')) {
+      return NextResponse.json({ error: 'غير مصرح لك بقراءة بيانات العملاء' }, { status: 403 });
+    }
+    return NextResponse.json({ error: error.message || 'فشل جلب قائمة العملاء' }, { status: 500 });
   }
 }
 
-// Create Client
+// Create Client (Atomic RPC Execution)
 export async function POST(req: NextRequest) {
   try {
-    const { user, error, status } = await verifyAuth(req);
+    const { user, error, status, supabase } = await getAuthUser(req);
     if (error || !user) {
-      return NextResponse.json({ error: error || 'Unauthorized' }, { status });
+      return NextResponse.json({ error: error || 'غير مصرح' }, { status });
     }
 
     const body = await req.json();
     const { name, contactPerson, phone, email, address, taxNumber, notes, items = [], pricing = [] } = body;
 
     if (!name) {
-      return NextResponse.json({ error: 'Client name is required' }, { status: 400 });
+      return NextResponse.json({ error: 'اسم العميل مطلوب' }, { status: 400 });
     }
 
-    // Transaction for atomic insertions
-    const result = await db.transaction(async (tx) => {
-      // 1. Insert Client
-      const [newClient] = await tx.insert(clients).values({
-        name,
-        contactPerson,
-        phone,
-        email,
-        address,
-        taxNumber,
-        notes,
-        createdBy: user.id,
-        updatedBy: user.id,
-      }).returning();
-
-      // 2. Insert Client Items
-      let insertedItems = [];
-      if (items.length > 0) {
-        insertedItems = await Promise.all(
-          items.map(async (itemName: string) => {
-            const [item] = await tx.insert(clientItems).values({
-              clientId: newClient.id,
-              name: itemName,
-              createdBy: user.id,
-            }).returning();
-            return item;
-          })
-        );
-      }
-
-      // 3. Insert Pricing Agreements
-      let insertedPricing = [];
-      if (pricing.length > 0) {
-        insertedPricing = await Promise.all(
-          pricing.map(async (p: { serviceName: string; price: number; currency: string }) => {
-            const [priceRule] = await tx.insert(clientPricing).values({
-              clientId: newClient.id,
-              serviceName: p.serviceName,
-              price: p.price.toString(),
-              currency: p.currency || 'EGP',
-              createdBy: user.id,
-            }).returning();
-            return priceRule;
-          })
-        );
-      }
-
-      // 4. Log Audit Event inside transaction
-      await logAudit({
-        tableName: 'clients',
-        recordId: newClient.id,
-        action: 'INSERT',
-        newData: { ...newClient, items, pricing },
-        userEmail: user.email,
-        req,
-      });
-
-      return {
-        ...newClient,
-        items: insertedItems,
-        pricing: insertedPricing,
-      };
+    // Call atomic RPC function create_client_with_details
+    const { data: createdClient, error: rpcError } = await supabase.rpc('create_client_with_details', {
+      p_name: name,
+      p_contact_person: contactPerson || null,
+      p_phone: phone || null,
+      p_email: email || null,
+      p_address: address || null,
+      p_tax_number: taxNumber || null,
+      p_notes: notes || null,
+      p_items: items,
+      p_pricing: pricing,
     });
 
-    return NextResponse.json(result);
-  } catch (error) {
+    if (rpcError) throw rpcError;
+
+    // Format response for frontend compatibility
+    const formattedResult = {
+      ...createdClient,
+      contactPerson: createdClient.contact_person,
+      taxNumber: createdClient.tax_number,
+      isActive: createdClient.is_active,
+      createdAt: createdClient.created_at,
+      pricing: (createdClient.pricing || []).map((p: any) => ({
+        ...p,
+        serviceName: p.service_name,
+        price: p.default_amount,
+      })),
+    };
+
+    return NextResponse.json(formattedResult);
+  } catch (error: any) {
     console.error('Failed to create client:', error);
-    return NextResponse.json({ error: 'Failed to create client record' }, { status: 500 });
+    if (error.code === '23505') {
+      return NextResponse.json({ error: 'هذا العميل متواجد بالفعل بقاعدة البيانات' }, { status: 400 });
+    }
+    if (error.code === '42501' || error.message?.includes('غير مصرح') || error.message?.includes('violates row-level security')) {
+      return NextResponse.json({ error: 'غير مصرح لك بإضافة عملاء جدد' }, { status: 403 });
+    }
+    return NextResponse.json({ error: error.message || 'فشل إضافة العميل' }, { status: 500 });
   }
 }

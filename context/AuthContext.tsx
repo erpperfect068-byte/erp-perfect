@@ -1,9 +1,12 @@
 'use client';
 
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { User as FirebaseUser, onAuthStateChanged } from 'firebase/auth';
-import { auth, googleAuthProvider, signInWithPopup, signOut as firebaseSignOut } from '../lib/firebase-client';
+import { createClient, User as SupabaseUser, Session } from '@supabase/supabase-js';
 import { useRouter } from 'next/navigation';
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://evxeqsfuyvisfkqxdaqv.supabase.co';
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV2eGVxc2Z1eXZpc2ZrcXhkYXF2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAyNTI0NjMsImV4cCI6MjEwNTgyODQ2M30.aXcDykVvTjH6Wnxd0b9BDJXLZWGt0CkF_oe5NYoYVJE';
+export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 export interface DatabaseUser {
   id: string;
@@ -18,90 +21,101 @@ export interface DatabaseUser {
   updatedAt: string;
 }
 
-export type DemoRole = 'admin' | 'accountant' | 'clearance_officer' | 'data_entry';
-
-export const DEMO_ACCOUNTS: Record<DemoRole, { email: string; name: string; role: DemoRole; desc: string; color: string; permissions: string[] }> = {
-  admin: {
-    email: 'admin@demo-customs.eg',
-    name: 'أحمد محمود (مدير النظام التجريبي)',
-    role: 'admin',
-    desc: 'كامل الصلاحيات، التدقيق، إدارة المستخدمين والإعدادات',
-    color: 'bg-red-500',
-    permissions: [
-      'clients.view', 'clients.create', 'clients.edit', 'clients.delete',
-      'shipments.view', 'shipments.create', 'shipments.edit', 'shipments.delete',
-      'treasury.view', 'treasury.create', 'treasury.reverse',
-      'statements.view', 'statements.create', 'statements.edit', 'statements.print',
-      'deposits.view', 'deposits.create',
-      'users.view', 'users.invite', 'users.manage_roles',
-      'roles.manage',
-      'settings.view', 'settings.edit',
-      'audit.view'
-    ],
-  },
-  accountant: {
-    email: 'accountant@demo-customs.eg',
-    name: 'سارة إبراهيم (محاسب مالي تجريبي)',
-    role: 'accountant',
-    desc: 'إدارة الخزينة، كشوف الحساب، الأمانات والودائع',
-    color: 'bg-emerald-500',
-    permissions: [
-      'treasury.view', 'treasury.create', 'treasury.reverse',
-      'statements.view', 'statements.create', 'statements.edit', 'statements.print',
-      'deposits.view', 'deposits.create',
-      'clients.view', 'shipments.view'
-    ],
-  },
-  clearance_officer: {
-    email: 'clearance@demo-customs.eg',
-    name: 'كابتن طارق السعيد (مخلص جمركي تجريبي)',
-    role: 'clearance_officer',
-    desc: 'متابعة الشحنات، بوالص الشحن، وإجراءات الموانئ',
-    color: 'bg-blue-500',
-    permissions: [
-      'shipments.view', 'shipments.create', 'shipments.edit',
-      'clients.view', 'settings.view'
-    ],
-  },
-  data_entry: {
-    email: 'dataentry@demo-customs.eg',
-    name: 'مصطفى عادل (مدخل بيانات تجريبي)',
-    role: 'data_entry',
-    desc: 'إدخال بيانات العملاء والبيانات الجمركية الأولية',
-    color: 'bg-amber-500',
-    permissions: [
-      'clients.view', 'clients.create', 'clients.edit',
-      'shipments.view', 'shipments.create'
-    ],
-  },
-};
-
 interface AuthContextType {
-  firebaseUser: FirebaseUser | null;
+  user: SupabaseUser | null;
+  session: Session | null;
   dbUser: DatabaseUser | null;
   loading: boolean;
   error: string | null;
-  isDemoMode: boolean;
-  demoRole: DemoRole | null;
-  loginWithGoogle: () => Promise<void>;
-  loginAsDemo: (role?: DemoRole) => Promise<void>;
   logout: () => Promise<void>;
   getAuthToken: () => Promise<string | null>;
-  resetDemoData: () => Promise<boolean>;
   hasPermission: (permissionCode: string) => boolean;
-  exitDemoMode: () => Promise<void>;
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
+  const [user, setUser] = useState<SupabaseUser | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
   const [dbUser, setDbUser] = useState<DatabaseUser | null>(null);
-  const [isDemoMode, setIsDemoMode] = useState<boolean>(false);
-  const [demoRole, setDemoRole] = useState<DemoRole | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
+
+  const fetchUserProfile = async (authUser: SupabaseUser) => {
+    try {
+      // 1. Fetch Profile
+      const { data: profile, error: profileErr } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', authUser.id)
+        .single();
+
+      if (profileErr || !profile) {
+        console.warn('Profile not found in public.profiles:', profileErr);
+      }
+
+      if (profile && profile.is_active === false) {
+        throw new Error('user_banned');
+      }
+
+      // 2. Fetch User Role
+      const { data: userRoleData } = await supabase
+        .from('user_roles')
+        .select('role_id, role:roles(id, name)')
+        .eq('user_id', authUser.id)
+        .single();
+
+      const roleName = (userRoleData?.role as any)?.name || 'data_entry';
+      const roleId = userRoleData?.role_id || null;
+
+      // 3. Fetch Role Permissions
+      let permissions: string[] = [];
+      if (roleId) {
+        const { data: rolePerms } = await supabase
+          .from('role_permissions')
+          .select('permission:permissions(code)')
+          .eq('role_id', roleId);
+
+        permissions = (rolePerms || [])
+          .map((rp: any) => rp.permission?.code)
+          .filter(Boolean);
+      }
+
+      const formattedUser: DatabaseUser = {
+        id: authUser.id,
+        uid: authUser.id,
+        email: authUser.email || '',
+        name: profile?.name || authUser.user_metadata?.name || authUser.email?.split('@')[0] || 'مستخدم',
+        role: roleName,
+        roleId: roleId,
+        permissions: permissions,
+        isActive: profile ? profile.is_active : true,
+        createdAt: profile?.created_at || authUser.created_at,
+        updatedAt: profile?.updated_at || authUser.created_at,
+      };
+
+      setDbUser(formattedUser);
+      setError(null);
+    } catch (err: any) {
+      console.error('Error fetching user profile:', err);
+      if (err.message === 'user_banned') {
+        setError('تم إيقاف هذا الحساب، يرجى التواصل مع مدير النظام.');
+        await supabase.auth.signOut();
+        setDbUser(null);
+        setUser(null);
+        setSession(null);
+      } else {
+        setError(err.message || 'حدث خطأ أثناء تحميل بيانات الملف الشخصي');
+      }
+    }
+  };
+
+  const getAuthToken = async (): Promise<string | null> => {
+    const { data } = await supabase.auth.getSession();
+    return data.session?.access_token || session?.access_token || null;
+  };
 
   const hasPermission = (permissionCode: string): boolean => {
     if (!dbUser) return false;
@@ -112,230 +126,73 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return false;
   };
 
-  const getAuthToken = async (): Promise<string | null> => {
-    if (isDemoMode && demoRole) {
-      return `demo-${demoRole}`;
-    }
-    if (auth.currentUser) {
-      return auth.currentUser.getIdToken();
-    }
-    return null;
-  };
-
-  const syncWithDatabase = async (fbUser: FirebaseUser) => {
-    try {
-      const token = await fbUser.getIdToken();
-      const res = await fetch('/api/auth/sync', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        if (
-          res.status === 403 ||
-          data.error?.includes('deactivated') ||
-          data.error?.includes('banned') ||
-          data.error?.includes('user_banned')
-        ) {
-          throw new Error('تم إيقاف هذا الحساب، يرجى التواصل مع مدير النظام.');
-        }
-        throw new Error(data.error || 'فشلت عملية التحقق من الحساب');
-      }
-
-      if (data.user && data.user.isActive === false) {
-        throw new Error('تم إيقاف هذا الحساب، يرجى التواصل مع مدير النظام.');
-      }
-
-      setDbUser(data.user);
-      setIsDemoMode(false);
-      setDemoRole(null);
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem('customs_demo_role');
-      }
-      setError(null);
-      return data.user;
-    } catch (err: any) {
-      console.error('Database sync error:', err);
-      setError(err.message || 'حدث خطأ أثناء مزامنة البيانات');
-      await firebaseSignOut(auth);
-      setDbUser(null);
-      return null;
-    }
-  };
-
-  const loginAsDemo = async (role: DemoRole = 'admin') => {
-    setLoading(true);
-    setError(null);
-    try {
-      const demoConfig = DEMO_ACCOUNTS[role];
-      const token = `demo-${role}`;
-
-      const res = await fetch('/api/auth/sync', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      const data = await res.json();
-      if (res.ok && data.user) {
-        setDbUser(data.user);
-      } else {
-        setDbUser({
-          id: `demo-${role}-id`,
-          uid: `demo-uid-${role}`,
-          email: demoConfig.email,
-          name: demoConfig.name,
-          role: role,
-          permissions: demoConfig.permissions,
-          isActive: true,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        });
-      }
-
-      setIsDemoMode(true);
-      setDemoRole(role);
-      setFirebaseUser(null);
-
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('customs_demo_role', role);
-      }
-
-      if (window.location.pathname === '/login') {
-        router.push('/');
-      }
-    } catch (err: any) {
-      console.error('Error logging in as demo user:', err);
-      setError('فشل تفعيل الحساب التجريبي');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const resetDemoData = async (): Promise<boolean> => {
-    try {
-      const res = await fetch('/api/seed', {
-        method: 'POST',
-      });
-      return res.ok;
-    } catch (err) {
-      console.error('Failed to reset demo data:', err);
-      return false;
-    }
-  };
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const savedDemoRole = localStorage.getItem('customs_demo_role') as DemoRole | null;
-      if (savedDemoRole && DEMO_ACCOUNTS[savedDemoRole]) {
-        loginAsDemo(savedDemoRole);
-        return;
-      }
-    }
-
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      setLoading(true);
-      if (user) {
-        setFirebaseUser(user);
-        const success = await syncWithDatabase(user);
-        if (success && window.location.pathname === '/login') {
-          router.push('/');
-        }
-      } else {
-        if (typeof window !== 'undefined' && !localStorage.getItem('customs_demo_role')) {
-          setFirebaseUser(null);
-          setDbUser(null);
-          setIsDemoMode(false);
-          setDemoRole(null);
-          if (window.location.pathname !== '/login') {
-            router.push('/login');
-          }
-        }
-      }
-      setLoading(false);
-    });
-
-    return () => unsubscribe();
-  }, [router]);
-
-  const loginWithGoogle = async () => {
-    setError(null);
-    setLoading(true);
-    try {
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem('customs_demo_role');
-      }
-      setIsDemoMode(false);
-      setDemoRole(null);
-      await signInWithPopup(auth, googleAuthProvider);
-    } catch (err: any) {
-      console.error('Google login error:', err);
-      setError(err.message || 'فشلت عملية تسجيل الدخول باستخدام Google');
-      setLoading(false);
+  const refreshUser = async () => {
+    if (user) {
+      await fetchUserProfile(user);
     }
   };
 
   const logout = async () => {
     setLoading(true);
     try {
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem('customs_demo_role');
-      }
-      setIsDemoMode(false);
-      setDemoRole(null);
+      await supabase.auth.signOut();
+      setUser(null);
+      setSession(null);
       setDbUser(null);
-      setFirebaseUser(null);
-      await firebaseSignOut(auth).catch(() => {});
       router.push('/login');
     } catch (err: any) {
       console.error('Logout error:', err);
-      setError(err.message || 'فشل تسجيل الخروج');
     } finally {
       setLoading(false);
     }
   };
 
-  const exitDemoMode = async () => {
-    setLoading(true);
-    try {
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem('customs_demo_role');
+  useEffect(() => {
+    // Check initial session
+    supabase.auth.getSession().then(({ data: { session: initSession } }) => {
+      setSession(initSession);
+      setUser(initSession?.user || null);
+      if (initSession?.user) {
+        fetchUserProfile(initSession.user).finally(() => setLoading(false));
+      } else {
+        setLoading(false);
       }
-      setIsDemoMode(false);
-      setDemoRole(null);
-      setDbUser(null);
-      setFirebaseUser(null);
-      await firebaseSignOut(auth).catch(() => {});
-      router.push('/login');
-    } catch (err: any) {
-      console.error('Exit demo mode error:', err);
-    } finally {
+    });
+
+    // Listen for auth state changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, currentSession) => {
+      setSession(currentSession);
+      const currentUser = currentSession?.user || null;
+      setUser(currentUser);
+
+      if (currentUser) {
+        await fetchUserProfile(currentUser);
+      } else {
+        setDbUser(null);
+        if (window.location.pathname !== '/login') {
+          router.push('/login');
+        }
+      }
       setLoading(false);
-    }
-  };
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [router]);
 
   return (
     <AuthContext.Provider
       value={{
-        firebaseUser,
+        user,
+        session,
         dbUser,
         loading,
         error,
-        isDemoMode,
-        demoRole,
-        loginWithGoogle,
-        loginAsDemo,
         logout,
         getAuthToken,
-        resetDemoData,
         hasPermission,
-        exitDemoMode,
+        refreshUser,
       }}
     >
       {children}

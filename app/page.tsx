@@ -27,7 +27,7 @@ interface DashboardStats {
 }
 
 export default function DashboardPage() {
-  const { dbUser, getAuthToken, isDemoMode } = useAuth();
+  const { dbUser, getAuthToken } = useAuth();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -108,31 +108,7 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Demo Mode / Clean Slate Banner */}
-        {isDemoMode ? (
-          <div className="bg-amber-500/10 border border-amber-200/80 rounded-3xl p-5 sm:p-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-            <div className="flex items-start gap-3.5">
-              <div className="h-11 w-11 rounded-2xl bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-md shadow-amber-500/20">
-                <Sparkles className="h-5 w-5 animate-pulse" />
-              </div>
-              <div>
-                <h3 className="text-sm font-bold text-slate-900">
-                  أنت تعمل حالياً في وضع التجربة (Demo Mode) محمل ببيانات واقعية جاهزة
-                </h3>
-                <p className="text-xs text-slate-600 font-light mt-0.5 max-w-2xl leading-relaxed">
-                  يحتوي النظام الآن على 3 عملاء، 3 بوالص شحن بحالات مختلفة، كشوف حساب، سندات أمانات (عامة ومخصصة)، وسجلات خزينة. يمكنك تجربة كافة الشاشات بحرية، وعندما ترغب ببدء العمل الفعلي اضغط زر تفريغ السيستم.
-                </p>
-              </div>
-            </div>
-            <Link
-              href="/settings?tab=demo"
-              className="px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold shrink-0 transition-colors shadow-sm flex items-center gap-1.5"
-            >
-              <span>الخروج من الديمو وتفريغ السيستم</span>
-              <ChevronLeft className="h-4 w-4" />
-            </Link>
-          </div>
-        ) : stats?.shipmentsCount === 0 && stats?.clientsCount === 0 ? (
+        {stats?.shipmentsCount === 0 && stats?.clientsCount === 0 ? (
           <div className="bg-emerald-500/10 border border-emerald-200 rounded-3xl p-5 sm:p-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
             <div className="flex items-start gap-3.5">
               <div className="h-11 w-11 rounded-2xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-md shadow-emerald-600/20">
