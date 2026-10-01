@@ -1,26 +1,37 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/src/db/index';
-import { auditLog } from '@/src/db/schema';
-import { desc } from 'drizzle-orm';
-import { verifyAuth, checkRole } from '@/lib/auth-server';
+import { getAuthUser } from '@/lib/supabase-server';
 
+// Get System Audit Log
 export async function GET(req: NextRequest) {
   try {
-    const { user, error, status } = await verifyAuth(req);
+    const { user, error, status, supabase } = await getAuthUser(req);
     if (error || !user) {
-      return NextResponse.json({ error: error || 'Unauthorized' }, { status });
+      return NextResponse.json({ error: error || 'غير مصرح' }, { status });
     }
 
-    // Verify caller is admin
-    if (!checkRole(user, ['admin'])) {
-      return NextResponse.json({ error: 'غير مصرح لغير مدراء النظام مراجعة سجل التدقيق' }, { status: 403 });
-    }
+    const { data: logs, error: dbError } = await supabase
+      .from('audit_log')
+      .select('*')
+      .eq('company_id', (user as any).company_id)
+      .order('changed_at', { ascending: false })
+      .limit(100);
 
-    const logs = await db.select().from(auditLog).orderBy(desc(auditLog.createdAt)).limit(100);
+    if (dbError) throw dbError;
 
-    return NextResponse.json(logs);
-  } catch (error) {
+    const formattedLogs = (logs || []).map((l: any) => ({
+      ...l,
+      tableName: l.table_name,
+      recordId: l.record_id,
+      oldData: l.old_data,
+      newData: l.new_data,
+      userEmail: l.changed_by_email,
+      ipAddress: l.ip_address,
+      createdAt: l.changed_at,
+    }));
+
+    return NextResponse.json(formattedLogs);
+  } catch (error: any) {
     console.error('Failed to list audit logs:', error);
-    return NextResponse.json({ error: 'Failed to retrieve audit trail' }, { status: 500 });
+    return NextResponse.json({ error: error.message || 'فشل جلب سجل الرقابة والتدقيق' }, { status: 500 });
   }
 }

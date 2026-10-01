@@ -1,40 +1,41 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/src/db/index';
-import { permissions } from '@/src/db/schema';
-import { verifyAuth } from '@/lib/auth-server';
-import { ensurePermissionsAndRoles } from '@/lib/roles-service';
+import { getAuthUser } from '@/lib/supabase-server';
 import { MODULE_LABELS } from '@/lib/permissions';
 
 export async function GET(req: NextRequest) {
   try {
-    const { user, error, status } = await verifyAuth(req);
+    const { user, error, status, supabase } = await getAuthUser(req);
     if (error || !user) {
       return NextResponse.json({ error: error || 'غير مصرح' }, { status });
     }
 
-    await ensurePermissionsAndRoles();
+    const { data: allPermissions, error: dbError } = await supabase
+      .from('permissions')
+      .select('*')
+      .order('module', { ascending: true });
 
-    const allPermissions = await db.select().from(permissions);
+    if (dbError) throw dbError;
 
     const grouped: Record<string, { module: string; moduleLabel: string; permissions: any[] }> = {};
 
-    for (const p of allPermissions) {
-      if (!grouped[p.module]) {
-        grouped[p.module] = {
-          module: p.module,
-          moduleLabel: MODULE_LABELS[p.module] || p.module,
+    (allPermissions || []).forEach((p: any) => {
+      const mod = p.module || 'other';
+      if (!grouped[mod]) {
+        grouped[mod] = {
+          module: mod,
+          moduleLabel: MODULE_LABELS[mod] || mod,
           permissions: [],
         };
       }
-      grouped[p.module].permissions.push(p);
-    }
+      grouped[mod].permissions.push(p);
+    });
 
     return NextResponse.json({
-      permissions: allPermissions,
+      permissions: allPermissions || [],
       grouped: Object.values(grouped),
     });
   } catch (error: any) {
     console.error('Failed to list permissions:', error);
-    return NextResponse.json({ error: 'فشل في استرجاع قائمة الصلاحيات' }, { status: 500 });
+    return NextResponse.json({ error: error.message || 'فشل في استرجاع قائمة الصلاحيات' }, { status: 500 });
   }
 }

@@ -13,6 +13,7 @@ export async function GET(req: NextRequest) {
     const { data: clientsList, error: dbError } = await supabase
       .from('clients')
       .select('*, items:client_items(*), pricing:client_pricing(*)')
+      .eq('company_id', (user as any).company_id)
       .eq('is_active', true)
       .order('created_at', { ascending: false });
 
@@ -73,6 +74,14 @@ export async function POST(req: NextRequest) {
     });
 
     if (rpcError) throw rpcError;
+
+    // Attach company_id to created client
+    if (createdClient?.id && (user as any).company_id) {
+      await supabase
+        .from('clients')
+        .update({ company_id: (user as any).company_id })
+        .eq('id', createdClient.id);
+    }
 
     // Format response for frontend compatibility
     const formattedResult = {

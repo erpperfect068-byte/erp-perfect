@@ -15,9 +15,12 @@ import {
   X,
   User,
   Globe,
+  UserCog,
+  ShieldCheck,
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { QuickDevSwitch } from './QuickDevSwitch';
 
 interface SidebarLayoutProps {
   children: React.ReactNode;
@@ -43,56 +46,84 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
     return null;
   }
 
+  const isAdmin = dbUser.role === 'admin';
+
+  /**
+   * Navigation items with permission-based visibility.
+   *
+   * Rules:
+   *  - Admin sees ALL items unconditionally (isAdmin shortcircuits all checks).
+   *  - Every other role sees an item if their permissions[] array includes any of the required permission codes.
+   */
   const navigation = [
     {
       name: 'لوحة التحكم',
       href: '/',
       icon: LayoutDashboard,
-      show: true,
+      checkVisible: () => true,
     },
     {
       name: 'قائمة العملاء',
       href: '/clients',
       icon: Users,
-      show: hasPermission('clients.read') || dbUser.role === 'admin',
+      checkVisible: (has: (code: string) => boolean) => has('clients.read'),
     },
     {
       name: 'إدارة الشحنات والبوالص',
       href: '/shipments',
       icon: Ship,
-      show: hasPermission('shipments.read') || dbUser.role === 'admin',
+      checkVisible: (has: (code: string) => boolean) => has('shipments.read'),
     },
     {
       name: 'كشوف الحسابات والتسويات',
       href: '/statements',
       icon: FileText,
-      show: hasPermission('statements.read') || dbUser.role === 'admin',
+      checkVisible: (has: (code: string) => boolean) => has('statements.read'),
     },
     {
       name: 'أمانات وودائع العملاء',
       href: '/deposits',
       icon: PiggyBank,
-      show: hasPermission('deposits.read') || dbUser.role === 'admin',
+      checkVisible: (has: (code: string) => boolean) => has('deposits.read'),
     },
     {
       name: 'الخزينة والمقبوضات',
       href: '/treasury',
       icon: Wallet,
-      show: hasPermission('treasury.read') || dbUser.role === 'admin',
+      checkVisible: (has: (code: string) => boolean) => has('treasury.read'),
     },
     {
       name: 'عهد الموظفين',
       href: '/custody',
       icon: Wallet,
-      show: hasPermission('custody.read') || dbUser.role === 'admin' || dbUser.role === 'accountant',
+      checkVisible: (has: (code: string) => boolean) => has('custody.read'),
     },
     {
       name: 'إعدادات التشغيل',
       href: '/settings',
       icon: Settings,
-      show: hasPermission('settings.manage') || dbUser.role === 'admin',
+      checkVisible: (has: (code: string) => boolean) =>
+        has('settings.manage') || has('agencies.read') || has('ports.read') || has('statuses.read'),
+    },
+    {
+      name: 'إدارة الموظفين والأدوار',
+      href: '/users',
+      icon: UserCog,
+      checkVisible: (has: (code: string) => boolean) => has('users.read') || has('roles.read'),
+    },
+    {
+      name: 'سجل الرقابة والتدقيق',
+      href: '/audit',
+      icon: ShieldCheck,
+      checkVisible: (has: (code: string) => boolean) => has('audit.read'),
     },
   ];
+
+  // Determine visibility for each nav item
+  const visibleNav = navigation.filter((item) => {
+    if (isAdmin) return true;
+    return item.checkVisible(hasPermission);
+  });
 
   return (
     <div className="flex h-screen bg-slate-100 font-sans overflow-hidden" dir="rtl">
@@ -117,7 +148,7 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
         }`}
       >
         {/* Brand */}
-        <div className="p-6 border-b border-slate-800">
+        <div className="p-6 border-b border-slate-800 shrink-0">
           <div className="flex items-center gap-3">
             <div className="h-10 w-10 rounded-xl bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-600/30">
               <Globe className="h-5 w-5 text-white" />
@@ -130,11 +161,9 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 px-4 py-6 space-y-1.5 overflow-y-auto">
-          {navigation.map((item) => {
-            if (!item.show) return null;
+        <nav className="flex-1 px-4 py-6 space-y-1 overflow-y-auto">
+          {visibleNav.map((item) => {
             const isActive = pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href));
-
             return (
               <Link
                 key={item.href}
@@ -147,18 +176,32 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                 }`}
               >
                 <item.icon
-                  className={`h-5 w-5 shrink-0 ${
-                    isActive ? 'text-white' : 'text-slate-400'
-                  }`}
+                  className={`h-5 w-5 shrink-0 ${isActive ? 'text-white' : 'text-slate-400'}`}
                 />
                 {item.name}
               </Link>
             );
           })}
+
+          {/* Role badge — shows current role + permissions count for debugging */}
+          {dbUser && (
+            <div className="mt-4 px-4 py-2 rounded-xl bg-slate-800/60 border border-slate-700/50">
+              <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-1">الدور الحالي</p>
+              <p className="text-xs font-bold text-indigo-400">{dbUser.role}</p>
+              {!isAdmin && dbUser.permissions && (
+                <p className="text-[10px] text-slate-500 mt-0.5">
+                  {dbUser.permissions.length} صلاحية نشطة
+                </p>
+              )}
+            </div>
+          )}
         </nav>
 
+        {/* Dev Quick Switch — Sidebar bottom slot */}
+        <QuickDevSwitch />
+
         {/* User Card */}
-        <div className="p-4 bg-slate-950 border-t border-slate-800 flex flex-col gap-2">
+        <div className="p-4 bg-slate-950 border-t border-slate-800 flex flex-col gap-2 shrink-0">
           <div className="flex items-center gap-3">
             <div className="h-9 w-9 rounded-full bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
               <User className="h-4 w-4" />

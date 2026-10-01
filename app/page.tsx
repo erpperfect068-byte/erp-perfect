@@ -14,8 +14,7 @@ import {
   ArrowRightLeft,
   Activity,
   ChevronLeft,
-  Sparkles,
-  CheckCircle2
+  Sparkles
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -107,30 +106,6 @@ export default function DashboardPage() {
             </div>
           </div>
         </div>
-
-        {stats?.shipmentsCount === 0 && stats?.clientsCount === 0 ? (
-          <div className="bg-emerald-500/10 border border-emerald-200 rounded-3xl p-5 sm:p-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-            <div className="flex items-start gap-3.5">
-              <div className="h-11 w-11 rounded-2xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-md shadow-emerald-600/20">
-                <CheckCircle2 className="h-5 w-5" />
-              </div>
-              <div>
-                <h3 className="text-sm font-bold text-slate-900">
-                  النظام الآن في الوضع الحي (Live Mode) وجاهز بنسبة 100%
-                </h3>
-                <p className="text-xs text-slate-600 font-light mt-0.5">
-                  النظام نظيف تماماً ومفرغ من أي بيانات وهمية. ابدأ الآن بإضافة أول عميل لمكتبك أو أول شحنة جمركية.
-                </p>
-              </div>
-            </div>
-            <Link
-              href="/settings?tab=demo"
-              className="text-xs text-slate-500 hover:text-indigo-600 underline font-medium shrink-0"
-            >
-              إعادة تعبئة بيانات تجريبية للتجربة
-            </Link>
-          </div>
-        ) : null}
 
         {/* Counts Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">

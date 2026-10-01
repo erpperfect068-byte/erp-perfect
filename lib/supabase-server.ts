@@ -43,5 +43,16 @@ export async function getAuthUser(req: NextRequest) {
     return { user: null, error: 'رمز المصادقة غير صالح أو منتهي الصلاحية', status: 401, supabase };
   }
 
-  return { user, error: null, status: 200, supabase };
+  // Fetch company_id from profiles
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('company_id')
+    .eq('id', user.id)
+    .single();
+
+  const userWithCompany = Object.assign(user, {
+    company_id: profile?.company_id || null,
+  });
+
+  return { user: userWithCompany, error: null, status: 200, supabase };
 }

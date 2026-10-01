@@ -10,10 +10,10 @@ export async function GET(req: NextRequest) {
 
     // Fetch all lookup tables via user-authenticated Supabase client (RLS enforced)
     const [portsRes, agenciesRes, contractorsRes, statusesRes] = await Promise.all([
-      supabase.from('ports').select('*').order('name'),
-      supabase.from('agencies').select('*').order('name'),
-      supabase.from('contractors').select('*').order('name'),
-      supabase.from('statuses').select('*').order('name'),
+      supabase.from('ports').select('*').eq('company_id', (user as any).company_id).order('name'),
+      supabase.from('agencies').select('*').eq('company_id', (user as any).company_id).order('name'),
+      supabase.from('contractors').select('*').eq('company_id', (user as any).company_id).order('name'),
+      supabase.from('statuses').select('*').eq('company_id', (user as any).company_id).order('name'),
     ]);
 
     if (portsRes.error) throw portsRes.error;
@@ -54,25 +54,25 @@ export async function POST(req: NextRequest) {
 
     switch (type) {
       case 'port': {
-        const { data, error: err } = await supabase.from('ports').insert([{ name }]).select().single();
+        const { data, error: err } = await supabase.from('ports').insert([{ name, company_id: (user as any).company_id || null }]).select().single();
         if (err) throw err;
         result = data;
         break;
       }
       case 'agency': {
-        const { data, error: err } = await supabase.from('agencies').insert([{ name }]).select().single();
+        const { data, error: err } = await supabase.from('agencies').insert([{ name, company_id: (user as any).company_id || null }]).select().single();
         if (err) throw err;
         result = data;
         break;
       }
       case 'contractor': {
-        const { data, error: err } = await supabase.from('contractors').insert([{ name }]).select().single();
+        const { data, error: err } = await supabase.from('contractors').insert([{ name, company_id: (user as any).company_id || null }]).select().single();
         if (err) throw err;
         result = data;
         break;
       }
       case 'status': {
-        const { data, error: err } = await supabase.from('statuses').insert([{ name, color: color || '#6b7280' }]).select().single();
+        const { data, error: err } = await supabase.from('statuses').insert([{ name, color: color || '#6b7280', company_id: (user as any).company_id || null }]).select().single();
         if (err) throw err;
         result = data;
         break;

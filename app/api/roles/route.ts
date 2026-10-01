@@ -1,111 +1,112 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/src/db/index';
-import { roles, rolePermissions, users } from '@/src/db/schema';
-import { eq, desc, sql } from 'drizzle-orm';
-import { verifyAuth, checkPermission } from '@/lib/auth-server';
-import { ensurePermissionsAndRoles } from '@/lib/roles-service';
-import { logAudit } from '@/lib/audit';
+import { getAuthUser } from '@/lib/supabase-server';
 
+// Get Roles & Permissions
 export async function GET(req: NextRequest) {
   try {
-    const { user, error, status } = await verifyAuth(req);
+    const { user, error, status, supabase } = await getAuthUser(req);
     if (error || !user) {
       return NextResponse.json({ error: error || 'غير مصرح' }, { status });
     }
 
-    await ensurePermissionsAndRoles();
+    const { data: rolesList, error: rolesErr } = await supabase
+      .from('roles')
+      .select('*')
+      .order('name', { ascending: true });
 
-    const allRoles = await db.select().from(roles).orderBy(desc(roles.createdAt));
-    const allRolePerms = await db.select().from(rolePermissions);
+    if (rolesErr) throw rolesErr;
 
-    const userCounts = await db
-      .select({
-        roleId: users.roleId,
-        count: sql<number>`count(*)::int`,
-      })
-      .from(users)
-      .groupBy(users.roleId);
-
-    const userCountMap = new Map(userCounts.map((uc) => [uc.roleId, uc.count]));
+    const { data: rolePerms } = await supabase
+      .from('role_permissions')
+      .select('role_id, permission:permissions(code)');
 
     const permsMap = new Map<string, string[]>();
-    for (const rp of allRolePerms) {
-      const existing = permsMap.get(rp.roleId) || [];
-      existing.push(rp.permissionCode);
-      permsMap.set(rp.roleId, existing);
-    }
+    (rolePerms || []).forEach((rp: any) => {
+      const code = rp.permission?.code;
+      if (code) {
+        const list = permsMap.get(rp.role_id) || [];
+        list.push(code);
+        permsMap.set(rp.role_id, list);
+      }
+    });
 
-    const result = allRoles.map((r) => ({
+    const { data: userRoles } = await supabase
+      .from('user_roles')
+      .select('role_id');
+
+    const userCountMap = new Map<string, number>();
+    (userRoles || []).forEach((ur: any) => {
+      userCountMap.set(ur.role_id, (userCountMap.get(ur.role_id) || 0) + 1);
+    });
+
+    const formattedRoles = (rolesList || []).map((r: any) => ({
       ...r,
+      isSystem: r.is_system,
       permissionCodes: permsMap.get(r.id) || [],
       userCount: userCountMap.get(r.id) || 0,
     }));
 
-    return NextResponse.json({ roles: result });
+    return NextResponse.json({ roles: formattedRoles });
   } catch (error: any) {
     console.error('Failed to get roles:', error);
-    return NextResponse.json({ error: 'فشل في استرجاع قائمة الأدوار' }, { status: 500 });
+    return NextResponse.json({ error: error.message || 'فشل استرجاع الأدوار والصلاحيات' }, { status: 500 });
   }
 }
 
+// Create New Role
 export async function POST(req: NextRequest) {
   try {
-    const { user, error, status } = await verifyAuth(req);
+    const { user, error, status, supabase } = await getAuthUser(req);
     if (error || !user) {
       return NextResponse.json({ error: error || 'غير مصرح' }, { status });
     }
 
-    if (!checkPermission(user, 'roles.manage')) {
-      return NextResponse.json({ error: 'صلاحيات غير كافية لإدارة وإنشاء الأدوار' }, { status: 403 });
-    }
-
     const body = await req.json();
-    const { name, description, permissionCodes } = body;
+    const { name, description, permissionCodes = [] } = body;
 
     if (!name || typeof name !== 'string' || !name.trim()) {
       return NextResponse.json({ error: 'اسم الدور مطلوب' }, { status: 400 });
     }
 
-    const [newRole] = await db
-      .insert(roles)
-      .values({
+    const { data: newRole, error: insertErr } = await supabase
+      .from('roles')
+      .insert({
         name: name.trim(),
         description: description ? description.trim() : null,
-        isSystem: false,
+        is_system: false,
       })
-      .returning();
+      .select()
+      .single();
 
+    if (insertErr) throw insertErr;
+
+    // Attach permissions
     if (Array.isArray(permissionCodes) && permissionCodes.length > 0) {
-      await db.insert(rolePermissions).values(
-        permissionCodes.map((code: string) => ({
-          roleId: newRole.id,
-          permissionCode: code,
-        }))
-      );
-    }
+      const { data: perms } = await supabase
+        .from('permissions')
+        .select('id, code')
+        .in('code', permissionCodes);
 
-    await logAudit({
-      tableName: 'roles',
-      recordId: newRole.id,
-      action: 'INSERT',
-      newData: {
-        ...newRole,
-        permissionCodes: permissionCodes || [],
-      },
-      userEmail: user.email,
-      req,
-    });
+      if (perms && perms.length > 0) {
+        const inserts = perms.map((p: any) => ({
+          role_id: newRole.id,
+          permission_id: p.id,
+        }));
+        await supabase.from('role_permissions').insert(inserts);
+      }
+    }
 
     return NextResponse.json(
       {
         ...newRole,
-        permissionCodes: permissionCodes || [],
+        isSystem: false,
+        permissionCodes,
         userCount: 0,
       },
       { status: 201 }
     );
   } catch (error: any) {
     console.error('Failed to create role:', error);
-    return NextResponse.json({ error: 'فشل في إنشاء الدور الجديد' }, { status: 500 });
+    return NextResponse.json({ error: error.message || 'فشل إنشاء الدور الجديد' }, { status: 500 });
   }
 }

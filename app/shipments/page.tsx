@@ -4,7 +4,6 @@ import React, { useEffect, useState } from 'react';
 import SidebarLayout from '../../components/SidebarLayout';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../components/Toast';
-import { motion } from 'motion/react';
 import Link from 'next/link';
 import {
   Ship,
@@ -20,7 +19,8 @@ import {
   X,
   FileText,
   Clock,
-  ArrowRight
+  Trash2,
+  Truck
 } from 'lucide-react';
 
 interface Client {
@@ -33,6 +33,13 @@ interface Port { id: string; name: string }
 interface Agency { id: string; name: string }
 interface Contractor { id: string; name: string }
 interface Status { id: string; name: string; color: string }
+
+interface ShipmentInvoice {
+  invoiceNumber: string;
+  supplierName: string;
+  amount: string;
+  currency: string;
+}
 
 interface Shipment {
   id: string;
@@ -51,6 +58,7 @@ interface Shipment {
   contractorId: string | null;
   agencyId: string | null;
   currency: string;
+  invoices?: ShipmentInvoice[];
   notes: string | null;
   createdAt: string;
   client: Client;
@@ -78,12 +86,9 @@ export default function ShipmentsPage() {
   const [isUpdateStatusOpen, setIsUpdateStatusOpen] = useState(false);
   const [selectedShipment, setSelectedShipment] = useState<Shipment | null>(null);
 
-  // New Shipment Form
+  // New Shipment Form State
   const [selectedClientId, setSelectedClientId] = useState('');
   const [selectedClientItemId, setSelectedClientItemId] = useState('');
-  const [invoiceValue, setInvoiceValue] = useState('');
-  const [invoiceNumber, setInvoiceNumber] = useState('');
-  const [supplierName, setSupplierName] = useState('');
   const [acid, setAcid] = useState('');
   const [declarationNumber46, setDeclarationNumber46] = useState('');
   const [containerCount, setContainerCount] = useState('');
@@ -94,12 +99,17 @@ export default function ShipmentsPage() {
   const [statusId, setStatusId] = useState('');
   const [contractorId, setContractorId] = useState('');
   const [agencyId, setAgencyId] = useState('');
-  const [currency, setCurrency] = useState('USD');
   const [notes, setNotes] = useState('');
+
+  // Multi-Currency Invoices State
+  const [invoices, setInvoices] = useState<ShipmentInvoice[]>([
+    { invoiceNumber: '', supplierName: '', amount: '', currency: 'USD' }
+  ]);
 
   // Update status modal forms
   const [updateStatusId, setUpdateStatusId] = useState('');
   const [updateDecl46, setUpdateDecl46] = useState('');
+  const [updateContractorId, setUpdateContractorId] = useState('');
   const [updateNotes, setUpdateNotes] = useState('');
 
   async function loadCoreData() {
@@ -117,10 +127,10 @@ export default function ShipmentsPage() {
       const settingsRes = await fetch('/api/settings', { headers: { 'Authorization': `Bearer ${token}` } });
       if (settingsRes.ok) {
         const setts = await settingsRes.json();
-        setPorts(setts.ports);
-        setAgencies(setts.agencies);
-        setContractors(setts.contractors);
-        setStatuses(setts.statuses);
+        setPorts(setts.ports || []);
+        setAgencies(setts.agencies || []);
+        setContractors(setts.contractors || []);
+        setStatuses(setts.statuses || []);
       }
     } catch (err) {
       console.error(err);
@@ -133,6 +143,23 @@ export default function ShipmentsPage() {
   useEffect(() => {
     loadCoreData();
   }, [getAuthToken]);
+
+  const handleAddInvoiceRow = () => {
+    setInvoices(prev => [...prev, { invoiceNumber: '', supplierName: '', amount: '', currency: 'USD' }]);
+  };
+
+  const handleRemoveInvoiceRow = (index: number) => {
+    if (invoices.length === 1) return;
+    setInvoices(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleInvoiceChange = (index: number, field: keyof ShipmentInvoice, value: string) => {
+    setInvoices(prev => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], [field]: value };
+      return updated;
+    });
+  };
 
   const handleCreateShipment = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -152,9 +179,7 @@ export default function ShipmentsPage() {
         body: JSON.stringify({
           clientId: selectedClientId,
           clientItemId: selectedClientItemId || undefined,
-          invoiceValue: invoiceValue || undefined,
-          invoiceNumber: invoiceNumber || undefined,
-          supplierName: supplierName || undefined,
+          invoices,
           acid: acid || undefined,
           declarationNumber46: declarationNumber46 || undefined,
           containerCount: containerCount || undefined,
@@ -165,7 +190,6 @@ export default function ShipmentsPage() {
           statusId: statusId || undefined,
           contractorId: contractorId || undefined,
           agencyId: agencyId || undefined,
-          currency,
           notes: notes || undefined
         })
       });
@@ -176,9 +200,7 @@ export default function ShipmentsPage() {
         // Clear form
         setSelectedClientId('');
         setSelectedClientItemId('');
-        setInvoiceValue('');
-        setInvoiceNumber('');
-        setSupplierName('');
+        setInvoices([{ invoiceNumber: '', supplierName: '', amount: '', currency: 'USD' }]);
         setAcid('');
         setDeclarationNumber46('');
         setContainerCount('');
@@ -218,6 +240,7 @@ export default function ShipmentsPage() {
           id: selectedShipment.id,
           statusId: updateStatusId || undefined,
           declarationNumber46: updateDecl46 || undefined,
+          contractorId: updateContractorId || undefined,
           notes: updateNotes || undefined
         })
       });
@@ -239,6 +262,7 @@ export default function ShipmentsPage() {
     setSelectedShipment(shipment);
     setUpdateStatusId(shipment.statusId || '');
     setUpdateDecl46(shipment.declarationNumber46 || '');
+    setUpdateContractorId(shipment.contractorId || '');
     setUpdateNotes(shipment.notes || '');
     setIsUpdateStatusOpen(true);
   };
@@ -248,7 +272,8 @@ export default function ShipmentsPage() {
   const filteredShipments = shipments.filter((s) =>
     (s.client?.name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
     (s.bolNumber || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (s.acid || '').toLowerCase().includes(searchQuery.toLowerCase())
+    (s.acid || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (s.declarationNumber46 || '').toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   return (
@@ -259,7 +284,7 @@ export default function ShipmentsPage() {
           <div>
             <h1 className="text-2xl font-black text-slate-900">متابعة شحنات الجمرك</h1>
             <p className="text-sm text-slate-500 font-light mt-1">
-              راقب حركة الشحنات، سجل بيانات بوالص الشحن الـ ACID وأرقام الـ 46، وحدّث حالات التخليص يدوياً.
+              راقب حركة الشحنات، سجل بيانات بوالص الشحن الـ ACID وأرقام الإقرار 46، وحدّث حالات التخليص وفواتير العملات المختلفة.
             </p>
           </div>
           <button
@@ -277,7 +302,7 @@ export default function ShipmentsPage() {
             <Search className="absolute right-4 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400" />
             <input
               type="text"
-              placeholder="البحث بالعميل، رقم بوليصة الشحن (BOL)، أو رقم الـ ACID الجمركي..."
+              placeholder="البحث بالعميل، رقم بوليصة الشحن (BOL)، رقم الـ ACID، أو رقم إقرار 46..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-4 pr-12 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
@@ -339,6 +364,12 @@ export default function ShipmentsPage() {
                           {shipment.containerCount} حاويات
                         </span>
                       )}
+                      {shipment.contractor && (
+                        <span className="bg-amber-50 text-amber-700 text-xs px-2.5 py-1 rounded-xl font-bold border border-amber-100 flex items-center gap-1">
+                          <Truck className="h-3 w-3" />
+                          {shipment.contractor.name}
+                        </span>
+                      )}
                     </div>
 
                     <div>
@@ -355,7 +386,7 @@ export default function ShipmentsPage() {
                         <span className="font-bold text-slate-800">{shipment.acid || 'لم يسجل'}</span>
                       </div>
                       <div>
-                        <span className="block text-slate-400 font-light">بيان جمركي رقم 46:</span>
+                        <span className="block text-slate-400 font-light">بيان جمركي (إقرار 46):</span>
                         <span className="font-bold text-slate-800">{shipment.declarationNumber46 || 'بانتظار الإدراج'}</span>
                       </div>
                       <div>
@@ -369,13 +400,24 @@ export default function ShipmentsPage() {
                     </div>
                   </div>
 
-                  {/* Operational Right Block */}
+                  {/* Multi-currency Invoices Display */}
                   <div className="flex flex-col sm:flex-row items-stretch xl:items-center gap-3 shrink-0 xl:border-r xl:border-slate-100 xl:pr-6 xl:mr-2">
                     <div className="text-right hidden sm:block">
-                      <span className="text-[10px] text-slate-400 block font-light">قيمة الفاتورة الاستيرادية:</span>
-                      <span className="text-sm font-black text-slate-800 block">
-                        {shipment.invoiceValue ? parseFloat(shipment.invoiceValue).toLocaleString() : '0.00'} {shipment.currency}
-                      </span>
+                      <span className="text-[10px] text-slate-400 block font-light">فواتير الشحنة:</span>
+                      {shipment.invoices && shipment.invoices.length > 0 ? (
+                        <div className="space-y-0.5">
+                          {shipment.invoices.map((inv, idx) => (
+                            <div key={idx} className="text-xs font-black text-slate-800">
+                              {inv.amount ? parseFloat(inv.amount).toLocaleString() : '0.00'} {inv.currency}
+                              {inv.invoiceNumber && <span className="text-[10px] text-slate-400 font-normal mr-1">({inv.invoiceNumber})</span>}
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-sm font-black text-slate-800 block">
+                          {shipment.invoiceValue ? parseFloat(shipment.invoiceValue).toLocaleString() : '0.00'} {shipment.currency || 'USD'}
+                        </span>
+                      )}
                     </div>
 
                     <button
@@ -383,7 +425,7 @@ export default function ShipmentsPage() {
                       className="px-4 py-3 rounded-xl bg-slate-50 hover:bg-slate-100 active:bg-slate-200 border border-slate-200 text-slate-700 font-bold text-xs transition-colors flex items-center justify-center gap-1.5"
                     >
                       <Clock className="h-4 w-4" />
-                      تحديث الحالة الجمركية يدوياً
+                      تحديث الحالة والبيان 46
                     </button>
                     {['admin', 'accountant'].includes(dbUser?.role || '') && (
                       <Link
@@ -404,7 +446,7 @@ export default function ShipmentsPage() {
         {/* Create Shipment Modal */}
         {isCreateOpen && (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
-            <div className="bg-white rounded-3xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6 md:p-8 border border-slate-100 shadow-2xl">
+            <div className="bg-white rounded-3xl max-w-3xl w-full max-h-[90vh] overflow-y-auto p-6 md:p-8 border border-slate-100 shadow-2xl">
               <div className="flex items-center justify-between border-b border-slate-100 pb-4">
                 <div className="flex items-center gap-2">
                   <Ship className="h-6 w-6 text-indigo-600" />
@@ -476,31 +518,115 @@ export default function ShipmentsPage() {
                     />
                   </div>
 
+                  {/* Missing Field 1: Declaration 46 */}
                   <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-slate-700">قيمة الفاتورة الاستيرادية</label>
+                    <label className="text-xs font-bold text-slate-700">رقم البيان الجمركي (إقرار 46) <span className="text-[10px] text-slate-400 font-normal">(اختياري)</span></label>
                     <input
-                      type="number"
-                      placeholder="القيمة الكلية للبضاعة"
-                      value={invoiceValue}
-                      onChange={(e) => setInvoiceValue(e.target.value)}
+                      type="text"
+                      placeholder="مثال: 46019283"
+                      value={declarationNumber46}
+                      onChange={(e) => setDeclarationNumber46(e.target.value)}
                       className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-left focus:outline-none"
                       dir="ltr"
                     />
                   </div>
 
+                  {/* Missing Field 2: Transport Contractor Dropdown */}
                   <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-slate-700">عملة الفاتورة</label>
+                    <label className="text-xs font-bold text-slate-700">مقاول النقل (Transport Contractor)</label>
                     <select
-                      value={currency}
-                      onChange={(e) => setCurrency(e.target.value)}
+                      value={contractorId}
+                      onChange={(e) => setContractorId(e.target.value)}
                       className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none"
                     >
-                      <option value="USD">USD - دولار أمريكي</option>
-                      <option value="EUR">EUR - يورو</option>
-                      <option value="EGP">EGP - جنيه مصري</option>
+                      <option value="">-- اختر مقاول النقل --</option>
+                      {contractors.map(c => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
                     </select>
                   </div>
+                </div>
 
+                {/* Multi-Currency Invoices Section */}
+                <div className="space-y-3 p-4 bg-slate-50 border border-slate-200 rounded-2xl">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-800">فواتير الشحنة (تعدد العملات)</h4>
+                      <p className="text-[11px] text-slate-500">أضف فواتير البضاعة ومبالغها بالعملات المختلفة لنفس الشحنة.</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleAddInvoiceRow}
+                      className="flex items-center gap-1 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-bold transition-colors"
+                    >
+                      <Plus className="h-4 w-4" />
+                      إضافة فاتورة/عملة
+                    </button>
+                  </div>
+
+                  <div className="space-y-2">
+                    {invoices.map((inv, index) => (
+                      <div key={index} className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center bg-white p-3 rounded-xl border border-slate-200">
+                        <div className="sm:col-span-3">
+                          <input
+                            type="text"
+                            placeholder="رقم الفاتورة"
+                            value={inv.invoiceNumber}
+                            onChange={(e) => handleInvoiceChange(index, 'invoiceNumber', e.target.value)}
+                            className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs"
+                          />
+                        </div>
+                        <div className="sm:col-span-3">
+                          <input
+                            type="text"
+                            placeholder="اسم المورد"
+                            value={inv.supplierName}
+                            onChange={(e) => handleInvoiceChange(index, 'supplierName', e.target.value)}
+                            className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs"
+                          />
+                        </div>
+                        <div className="sm:col-span-3">
+                          <input
+                            type="number"
+                            placeholder="قيمة الفاتورة"
+                            value={inv.amount}
+                            onChange={(e) => handleInvoiceChange(index, 'amount', e.target.value)}
+                            className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-left"
+                            dir="ltr"
+                          />
+                        </div>
+                        <div className="sm:col-span-2">
+                          <select
+                            value={inv.currency}
+                            onChange={(e) => handleInvoiceChange(index, 'currency', e.target.value)}
+                            className="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold"
+                          >
+                            <option value="USD">USD ($)</option>
+                            <option value="EUR">EUR (€)</option>
+                            <option value="EGP">EGP (ج.م)</option>
+                            <option value="GBP">GBP (£)</option>
+                            <option value="SAR">SAR (ر.س)</option>
+                            <option value="AED">AED (د.إ)</option>
+                          </select>
+                        </div>
+                        <div className="sm:col-span-1 text-center">
+                          {invoices.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveInvoiceRow(index)}
+                              className="p-1 text-red-500 hover:bg-red-50 rounded-lg"
+                              title="حذف الفاتورة"
+                            >
+                              <Trash2 className="h-4 w-4 mx-auto" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-1.5">
                     <label className="text-xs font-bold text-slate-700">تاريخ وصول الباخرة المتوقع</label>
                     <input
@@ -647,6 +773,20 @@ export default function ShipmentsPage() {
                     className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-left focus:outline-none"
                     dir="ltr"
                   />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-700">تعديل مقاول النقل</label>
+                  <select
+                    value={updateContractorId}
+                    onChange={(e) => setUpdateContractorId(e.target.value)}
+                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none"
+                  >
+                    <option value="">-- اختر مقاول النقل --</option>
+                    {contractors.map(c => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
                 </div>
 
                 <div className="space-y-1.5">

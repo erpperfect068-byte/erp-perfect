@@ -1,96 +1,120 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/src/db/index';
-import { clientDeposits, clients, statements, shipments, treasuryTransactions } from '@/src/db/schema';
-import { eq, desc } from 'drizzle-orm';
-import { logAudit } from '@/lib/audit';
-import { verifyAuth } from '@/lib/auth-server';
+import { getAuthUser } from '@/lib/supabase-server';
 
+// List Client Deposits
 export async function GET(req: NextRequest) {
   try {
-    const { user, error, status } = await verifyAuth(req);
+    const { user, error, status, supabase } = await getAuthUser(req);
     if (error || !user) {
-      return NextResponse.json({ error: error || 'Unauthorized' }, { status });
+      return NextResponse.json({ error: error || 'غير مصرح' }, { status });
     }
 
-    const depositsList = await db.select().from(clientDeposits).orderBy(desc(clientDeposits.createdAt));
+    const { data: depositsList, error: dbError } = await supabase
+      .from('client_deposits')
+      .select('*, client:clients(*), statement:statements(*, shipment:shipments(*))')
+      .eq('company_id', (user as any).company_id)
+      .order('created_at', { ascending: false });
 
-    const fullDeposits = await Promise.all(
-      depositsList.map(async (dep) => {
-        const client = await db.select().from(clients).where(eq(clients.id, dep.clientId)).then(res => res[0]);
-        const statement = dep.statementId ? await db.select().from(statements).where(eq(statements.id, dep.statementId)).then(res => res[0]) : null;
-        const shipment = statement ? await db.select().from(shipments).where(eq(shipments.id, statement.shipmentId)).then(res => res[0]) : null;
+    if (dbError) throw dbError;
 
-        return {
-          ...dep,
-          client,
-          statement: statement ? { ...statement, shipment } : null,
-        };
-      })
-    );
+    const formattedDeposits = (depositsList || []).map((dep: any) => ({
+      ...dep,
+      clientId: dep.client_id,
+      statementId: dep.statement_id,
+      amount: parseFloat(Number(dep.amount || 0).toFixed(2)),
+      currency: dep.currency || 'EGP',
+      exchangeRateAtTransaction: dep.exchange_rate_at_transaction,
+      receiptNumber: dep.receipt_number,
+      depositDate: dep.deposit_date,
+      createdAt: dep.created_at,
+      client: dep.client ? {
+        ...dep.client,
+        contactPerson: dep.client.contact_person,
+        taxNumber: dep.client.tax_number,
+      } : null,
+      statement: dep.statement ? {
+        ...dep.statement,
+        shipmentId: dep.statement.shipment_id,
+        statementDate: dep.statement.statement_date,
+        totalAmount: dep.statement.total_amount,
+        shipment: dep.statement.shipment,
+      } : null,
+    }));
 
-    return NextResponse.json(fullDeposits);
-  } catch (error) {
+    return NextResponse.json(formattedDeposits);
+  } catch (error: any) {
     console.error('Failed to list deposits:', error);
-    return NextResponse.json({ error: 'Failed to retrieve deposits list' }, { status: 500 });
+    return NextResponse.json({ error: error.message || 'فشل جلب قائمة الإيداعات' }, { status: 500 });
   }
 }
 
+// Create Client Deposit & Inject into Treasury
 export async function POST(req: NextRequest) {
   try {
-    const { user, error, status } = await verifyAuth(req);
+    const { user, error, status, supabase } = await getAuthUser(req);
     if (error || !user) {
-      return NextResponse.json({ error: error || 'Unauthorized' }, { status });
+      return NextResponse.json({ error: error || 'غير مصرح' }, { status });
     }
 
     const body = await req.json();
-    const { clientId, statementId, amount, currency, exchangeRateAtTransaction, receiptNumber, notes } = body;
+    const { clientId, statementId, amount, currency = 'EGP', exchangeRateAtTransaction = 1.0000, receiptNumber, notes } = body;
 
-    if (!clientId || !amount) {
-      return NextResponse.json({ error: 'Client and amount are required' }, { status: 400 });
+    if (!clientId || !amount || parseFloat(amount) <= 0) {
+      return NextResponse.json({ error: 'العميل والمبلغ (أكبر من 0) مطلوبان' }, { status: 400 });
     }
 
-    const result = await db.transaction(async (tx) => {
-      // 1. Insert Deposit
-      const [newDeposit] = await tx.insert(clientDeposits).values({
-        clientId,
-        statementId: statementId || null,
-        amount: amount.toString(),
+    const parsedAmount = parseFloat(Number(amount).toFixed(2));
+    const parsedRate = parseFloat(Number(exchangeRateAtTransaction).toFixed(4));
+
+    // 1. Insert Deposit record into client_deposits
+    const { data: newDeposit, error: depErr } = await supabase
+      .from('client_deposits')
+      .insert({
+        company_id: (user as any).company_id || null,
+        client_id: clientId,
+        statement_id: statementId || null,
+        amount: parsedAmount,
         currency: currency || 'EGP',
-        exchangeRateAtTransaction: exchangeRateAtTransaction ? exchangeRateAtTransaction.toString() : '1.0000',
-        receiptNumber: receiptNumber || null,
+        exchange_rate_at_transaction: parsedRate,
+        receipt_number: receiptNumber || null,
         notes: notes || null,
-        createdBy: user.id,
-      }).returning();
+        created_by: user.id,
+      })
+      .select()
+      .single();
 
-      // 2. To update treasury with client's general cash injection (deposit is a positive treasury receipt)
-      await tx.insert(treasuryTransactions).values({
-        statementId: statementId || null,
-        clientId,
-        transactionType: 'deposit',
-        amount: amount.toString(),
+    if (depErr) throw depErr;
+
+    // 2. Reflect cash receipt in treasury_transactions (deposit type)
+    const { error: trErr } = await supabase
+      .from('treasury_transactions')
+      .insert({
+        company_id: (user as any).company_id || null,
+        client_id: clientId,
+        statement_id: statementId || null,
+        transaction_type: 'deposit',
+        amount: parsedAmount,
         currency: currency || 'EGP',
-        exchangeRateAtTransaction: exchangeRateAtTransaction ? exchangeRateAtTransaction.toString() : '1.0000',
-        referenceNumber: receiptNumber || null,
+        exchange_rate_at_transaction: parsedRate,
+        reference_number: receiptNumber || null,
         notes: `إيداع أمانة عميل: ${notes || ''}`,
-        createdBy: user.id,
+        created_by: user.id,
       });
 
-      // 3. Log Audit
-      await logAudit({
-        tableName: 'client_deposits',
-        recordId: newDeposit.id,
-        action: 'INSERT',
-        newData: newDeposit,
-        userEmail: user.email,
-        req,
-      });
+    if (trErr) console.warn('Failed to record automatic treasury transaction:', trErr);
 
-      return newDeposit;
-    });
+    const formatted = {
+      ...newDeposit,
+      clientId: newDeposit.client_id,
+      statementId: newDeposit.statement_id,
+      receiptNumber: newDeposit.receipt_number,
+      depositDate: newDeposit.deposit_date,
+      createdAt: newDeposit.created_at,
+    };
 
-    return NextResponse.json(result);
-  } catch (error) {
+    return NextResponse.json(formatted);
+  } catch (error: any) {
     console.error('Failed to create deposit:', error);
-    return NextResponse.json({ error: 'Failed to record custody deposit' }, { status: 500 });
+    return NextResponse.json({ error: error.message || 'فشل تسجيل الإيداع المالي' }, { status: 500 });
   }
 }

@@ -1,157 +1,197 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/src/db/index';
-import { users, userInvitations, roles } from '@/src/db/schema';
-import { eq, desc } from 'drizzle-orm';
-import { logAudit } from '@/lib/audit';
-import { verifyAuth, checkPermission } from '@/lib/auth-server';
-import { ensurePermissionsAndRoles } from '@/lib/roles-service';
+import { getAuthUser } from '@/lib/supabase-server';
+import { supabaseAdmin } from '@/lib/supabase-admin';
 
+// List Users and Roles
 export async function GET(req: NextRequest) {
   try {
-    const { user, error, status } = await verifyAuth(req);
+    const { user, error, status, supabase } = await getAuthUser(req);
     if (error || !user) {
-      return NextResponse.json({ error: error || 'Unauthorized' }, { status });
+      return NextResponse.json({ error: error || 'غير مصرح' }, { status });
     }
 
-    if (!checkPermission(user, 'users.view')) {
-      return NextResponse.json({ error: 'صلاحيات غير كافية لزيارة صفحة الموظفين' }, { status: 403 });
-    }
+    const { data: profilesList, error: profErr } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('company_id', (user as any).company_id)
+      .order('created_at', { ascending: false });
 
-    await ensurePermissionsAndRoles();
+    if (profErr) throw profErr;
 
-    const activeUsers = await db.select().from(users).orderBy(desc(users.createdAt));
-    const pendingInvites = await db.select().from(userInvitations).where(eq(userInvitations.status, 'pending')).orderBy(desc(userInvitations.invitedAt));
-    const allRoles = await db.select().from(roles).orderBy(desc(roles.createdAt));
+    const { data: userRolesList } = await supabase
+      .from('user_roles')
+      .select('*, role:roles(*)');
+
+    const userRoleMap = new Map<string, any>();
+    (userRolesList || []).forEach((ur: any) => {
+      userRoleMap.set(ur.user_id, ur);
+    });
+
+    const { data: rolesList } = await supabase
+      .from('roles')
+      .select('*')
+      .order('name', { ascending: true });
+
+    const formattedUsers = (profilesList || []).map((p: any) => {
+      const userRoleObj = userRoleMap.get(p.id);
+      return {
+        id: p.id,
+        uid: p.id,
+        email: p.email,
+        name: p.name,
+        fingerprint: p.fingerprint || null,
+        isActive: p.is_active ?? true,
+        role: userRoleObj?.role?.name || 'data_entry',
+        roleId: userRoleObj?.role_id || null,
+        roleObj: userRoleObj?.role || null,
+        createdAt: p.created_at,
+        updatedAt: p.updated_at,
+      };
+    });
 
     return NextResponse.json({
-      users: activeUsers,
-      invitations: pendingInvites,
-      roles: allRoles,
+      users: formattedUsers,
+      roles: rolesList || [],
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Failed to list team:', error);
-    return NextResponse.json({ error: 'Failed to retrieve team members list' }, { status: 500 });
+    return NextResponse.json({ error: error.message || 'فشل جلب قائمة الموظفين' }, { status: 500 });
   }
 }
 
+// Direct Admin User Creation (No Email Invitation Waiting)
 export async function POST(req: NextRequest) {
   try {
-    const { user, error, status } = await verifyAuth(req);
+    const { user, error, status, supabase } = await getAuthUser(req);
     if (error || !user) {
-      return NextResponse.json({ error: error || 'Unauthorized' }, { status });
-    }
-
-    if (!checkPermission(user, 'users.invite')) {
-      return NextResponse.json({ error: 'صلاحيات غير كافية لإرسال الدعوات' }, { status: 403 });
+      return NextResponse.json({ error: error || 'غير مصرح' }, { status });
     }
 
     const body = await req.json();
-    const { email, role, roleId } = body;
+    const { name, email, password, roleId } = body;
 
-    if (!email) {
-      return NextResponse.json({ error: 'البريد الإلكتروني مطلوب' }, { status: 400 });
+    if (!email || !password || !name) {
+      return NextResponse.json({ error: 'الاسم، البريد الإلكتروني، وكلمة المرور مطلوبة' }, { status: 400 });
     }
 
-    const existingUser = await db.select().from(users).where(eq(users.email, email.toLowerCase()));
-    if (existingUser.length > 0) {
-      return NextResponse.json({ error: 'هذا البريد الإلكتروني مسجل بالفعل كموظف نشط في النظام' }, { status: 400 });
+    if (password.length < 6) {
+      return NextResponse.json({ error: 'كلمة المرور يجب أن تكون 6 أحرف على الأقل' }, { status: 400 });
     }
 
-    const existingInvite = await db.select().from(userInvitations).where(eq(userInvitations.email, email.toLowerCase()));
-    const pendingInvite = existingInvite.find((i) => i.status === 'pending');
-    if (pendingInvite) {
-      return NextResponse.json({ error: 'هناك دعوة معلقة قيد الانتظار مرسلة بالفعل لهذا البريد الإلكتروني' }, { status: 400 });
-    }
+    const normalizedEmail = email.toLowerCase().trim();
 
-    const [newInvitation] = await db
-      .insert(userInvitations)
-      .values({
-        email: email.toLowerCase(),
-        role: role || 'data_entry',
-        invitedBy: user.name || user.email,
-        invitedByEmail: user.email,
-        status: 'pending',
-        invitedAt: new Date(),
-      })
-      .returning();
+    // 1. Create Auth User directly in Supabase Auth (Auto-confirmed)
+    let authUserId: string | undefined;
 
-    await logAudit({
-      tableName: 'user_invitations',
-      recordId: newInvitation.id,
-      action: 'INSERT',
-      newData: newInvitation,
-      userEmail: user.email,
-      req,
+    const { data: adminAuthData, error: adminAuthErr } = await supabaseAdmin.auth.admin.createUser({
+      email: normalizedEmail,
+      password: password,
+      email_confirm: true,
+      user_metadata: { name },
     });
 
-    return NextResponse.json(newInvitation);
-  } catch (error) {
-    console.error('Failed to invite user:', error);
-    return NextResponse.json({ error: 'Failed to record user invitation' }, { status: 500 });
-  }
-}
+    if (adminAuthErr || !adminAuthData.user) {
+      console.warn('supabaseAdmin.auth.admin.createUser info:', adminAuthErr?.message);
+      // Fallback: signUp via user client
+      const { data: signUpData, error: signUpErr } = await supabase.auth.signUp({
+        email: normalizedEmail,
+        password: password,
+        options: { data: { name } },
+      });
 
-export async function PATCH(req: NextRequest) {
-  try {
-    const { user, error, status } = await verifyAuth(req);
-    if (error || !user) {
-      return NextResponse.json({ error: error || 'Unauthorized' }, { status });
+      if (signUpErr || !signUpData.user) {
+        return NextResponse.json({ error: adminAuthErr?.message || signUpErr?.message || 'فشل إنشاء حساب المستخدم' }, { status: 400 });
+      }
+      authUserId = signUpData.user.id;
+    } else {
+      authUserId = adminAuthData.user.id;
     }
 
-    if (!checkPermission(user, 'users.manage_roles') && !checkPermission(user, 'roles.manage')) {
-      return NextResponse.json({ error: 'صلاحيات غير كافية لتغيير أدوار الموظفين' }, { status: 403 });
-    }
-
-    const body = await req.json();
-    const { userId, roleId } = body;
-
-    if (!userId || !roleId) {
-      return NextResponse.json({ error: 'معرف المستخدم ومعرف الدور مطلوبان' }, { status: 400 });
-    }
-
-    const targetUser = await db.select().from(users).where(eq(users.id, userId)).then((r) => r[0]);
-    if (!targetUser) {
-      return NextResponse.json({ error: 'المستخدم غير موجود' }, { status: 404 });
-    }
-
-    const targetRole = await db.select().from(roles).where(eq(roles.id, roleId)).then((r) => r[0]);
-    if (!targetRole) {
-      return NextResponse.json({ error: 'الدور المحدد غير موجود' }, { status: 404 });
-    }
-
-    let roleSlug = targetUser.role;
-    if (targetRole.name.includes('Admin') || targetRole.name.includes('مدير')) roleSlug = 'admin';
-    else if (targetRole.name.includes('محاسب')) roleSlug = 'accountant';
-    else if (targetRole.name.includes('مخلص')) roleSlug = 'clearance_officer';
-    else if (targetRole.name.includes('مدخل')) roleSlug = 'data_entry';
-
-    const [updatedUser] = await db
-      .update(users)
-      .set({
-        roleId: targetRole.id,
-        role: roleSlug,
-        updatedAt: new Date(),
+    // 2. Insert into profiles with auto-increment sequence fingerprint
+    const { data: newProfile, error: profileErr } = await supabase
+      .from('profiles')
+      .upsert({
+        id: authUserId,
+        company_id: (user as any).company_id || null,
+        email: normalizedEmail,
+        name: name.trim(),
+        is_active: true,
       })
-      .where(eq(users.id, userId))
-      .returning();
+      .select()
+      .single();
 
-    await logAudit({
-      tableName: 'users',
-      recordId: userId,
-      action: 'UPDATE',
-      oldData: { roleId: targetUser.roleId, role: targetUser.role },
-      newData: { roleId: updatedUser.roleId, role: updatedUser.role },
-      userEmail: user.email,
-      req,
-    });
+    if (profileErr) throw profileErr;
+
+    // 3. Assign Role in user_roles
+    let assignedRoleId = roleId;
+    if (!assignedRoleId) {
+      const { data: defaultRole } = await supabase.from('roles').select('id').eq('name', 'data_entry').single();
+      assignedRoleId = defaultRole?.id;
+    }
+
+    if (assignedRoleId) {
+      await supabase
+        .from('user_roles')
+        .upsert({
+          user_id: authUserId,
+          role_id: assignedRoleId,
+        });
+    }
 
     return NextResponse.json({
       success: true,
-      user: updatedUser,
-      role: targetRole,
+      message: 'تم إنشاء حساب الموظف وتفعيله مباشرة بنجاح!',
+      user: {
+        id: newProfile.id,
+        email: newProfile.email,
+        name: newProfile.name,
+        fingerprint: newProfile.fingerprint,
+        roleId: assignedRoleId,
+      },
     });
-  } catch (error) {
-    console.error('Failed to update user role:', error);
-    return NextResponse.json({ error: 'فشل في تحديث دور الموظف' }, { status: 500 });
+  } catch (error: any) {
+    console.error('Failed to create user:', error);
+    return NextResponse.json({ error: error.message || 'فشل إنشاء حساب الموظف' }, { status: 500 });
+  }
+}
+
+// Update User Role / Status
+export async function PATCH(req: NextRequest) {
+  try {
+    const { user, error, status, supabase } = await getAuthUser(req);
+    if (error || !user) {
+      return NextResponse.json({ error: error || 'غير مصرح' }, { status });
+    }
+
+    const body = await req.json();
+    const { userId, roleId, isActive } = body;
+
+    if (!userId) {
+      return NextResponse.json({ error: 'معرف المستخدم مطلوب' }, { status: 400 });
+    }
+
+    if (isActive !== undefined) {
+      await supabase
+        .from('profiles')
+        .update({ is_active: isActive })
+        .eq('id', userId);
+    }
+
+    if (roleId) {
+      await supabase
+        .from('user_roles')
+        .upsert({
+          user_id: userId,
+          role_id: roleId,
+        });
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: 'تم تحديث حساب الموظف بنجاح',
+    });
+  } catch (error: any) {
+    console.error('Failed to update user:', error);
+    return NextResponse.json({ error: error.message || 'فشل تحديث بيانات الموظف' }, { status: 500 });
   }
 }
