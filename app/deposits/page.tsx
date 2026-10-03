@@ -64,8 +64,10 @@ interface Deposit {
 }
 
 export default function DepositsPage() {
-  const { getAuthToken } = useAuth();
+  const { getAuthToken, hasPermission } = useAuth();
   const { showToast } = useToast();
+
+  const canCreateDeposit = hasPermission('deposits.create');
   const [deposits, setDeposits] = useState<Deposit[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [shipments, setShipments] = useState<Shipment[]>([]);
@@ -212,16 +214,18 @@ export default function DepositsPage() {
               إدارة الأمانات العامة (رصيد مفتوح يُخصم منه لأي شحنة) والأمانات المخصصة (مربوطة ببوليصة شحن أو بيان جمركي محدد).
             </p>
           </div>
-          <button
-            onClick={() => {
-              setDepositType('general');
-              setIsModalOpen(true);
-            }}
-            className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-bold py-3 px-5 rounded-2xl shadow-lg transition-colors shrink-0"
-          >
-            <Plus className="h-5 w-5" />
-            استلام أمانة / عهدة جديدة
-          </button>
+          {canCreateDeposit && (
+            <button
+              onClick={() => {
+                setDepositType('general');
+                setIsModalOpen(true);
+              }}
+              className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-bold py-3 px-5 rounded-2xl shadow-lg transition-colors shrink-0"
+            >
+              <Plus className="h-5 w-5" />
+              استلام أمانة / عهدة جديدة
+            </button>
+          )}
         </div>
 
         {/* Explanatory Banner: The difference between General and Linked deposits */}

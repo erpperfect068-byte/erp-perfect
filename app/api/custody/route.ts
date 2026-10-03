@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthUser } from '@/lib/supabase-server';
+import { getAuthUser, userHasPermission, forbiddenResponse } from '@/lib/supabase-server';
 
 // GET: Fetch list of employee custodies with employee details, expenses, and shipment info
 export async function GET(req: NextRequest) {
@@ -102,6 +102,11 @@ export async function POST(req: NextRequest) {
     const { user, error, status, supabase } = await getAuthUser(req);
     if (error || !user) {
       return NextResponse.json({ error: error || 'غير مصرح' }, { status });
+    }
+
+    // RBAC: require custody.create or custody.issue permission
+    if (!userHasPermission(user, 'custody.create') && !userHasPermission(user, 'custody.issue')) {
+      return forbiddenResponse('غير مصرح لك بصرف عهدة جديدة');
     }
 
     const body = await req.json();

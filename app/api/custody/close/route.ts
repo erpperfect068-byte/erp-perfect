@@ -1,11 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthUser } from '@/lib/supabase-server';
+import { getAuthUser, userHasPermission, forbiddenResponse } from '@/lib/supabase-server';
 
 export async function POST(req: NextRequest) {
   try {
     const { user, error, status, supabase } = await getAuthUser(req);
     if (error || !user) {
       return NextResponse.json({ error: error || 'غير مصرح' }, { status });
+    }
+
+    // RBAC: require custody.close permission
+    if (!userHasPermission(user, 'custody.close')) {
+      return forbiddenResponse('غير مصرح لك بإقفال العهدة وتوريد المتبقي للخزينة');
     }
 
     const body = await req.json();

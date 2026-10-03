@@ -70,8 +70,13 @@ interface Shipment {
 }
 
 export default function ShipmentsPage() {
-  const { getAuthToken, dbUser } = useAuth();
+  const { getAuthToken, hasPermission, dbUser } = useAuth();
   const { showToast } = useToast();
+
+  const canCreateShipment = hasPermission('shipments.create');
+  const canUpdateShipment = hasPermission('shipments.update');
+  const canDeleteShipment = hasPermission('shipments.delete');
+
   const [shipments, setShipments] = useState<Shipment[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [ports, setPorts] = useState<Port[]>([]);
@@ -218,9 +223,9 @@ export default function ShipmentsPage() {
         const err = await res.json();
         showToast(err.error || 'فشل فتح ملف الشحنة', 'error');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      showToast('خطأ بالشبكة أو الخادم', 'error');
+      showToast(err.message || 'خطأ بالشبكة أو الخادم', 'error');
     }
   };
 
@@ -245,16 +250,18 @@ export default function ShipmentsPage() {
         })
       });
 
+      const data = await res.json();
+
       if (res.ok) {
         showToast('تم تحديث حالة بوليصة التخليص بنجاح', 'success');
         setIsUpdateStatusOpen(false);
         loadCoreData();
       } else {
-        showToast('فشل تحديث الحالة الجمركية', 'error');
+        showToast(data.error || 'فشل تحديث الحالة الجمركية', 'error');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      showToast('خطأ بالخادم', 'error');
+      showToast(err.message || 'خطأ بالخادم', 'error');
     }
   };
 
@@ -287,13 +294,15 @@ export default function ShipmentsPage() {
               راقب حركة الشحنات، سجل بيانات بوالص الشحن الـ ACID وأرقام الإقرار 46، وحدّث حالات التخليص وفواتير العملات المختلفة.
             </p>
           </div>
-          <button
-            onClick={() => setIsCreateOpen(true)}
-            className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-bold py-3 px-5 rounded-2xl shadow-lg shadow-indigo-600/10 transition-colors shrink-0"
-          >
-            <Plus className="h-5 w-5" />
-            فتح ملف شحنة جديدة
-          </button>
+          {canCreateShipment && (
+            <button
+              onClick={() => setIsCreateOpen(true)}
+              className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-bold py-3 px-5 rounded-2xl shadow-lg shadow-indigo-600/10 transition-colors shrink-0"
+            >
+              <Plus className="h-5 w-5" />
+              فتح ملف شحنة جديدة
+            </button>
+          )}
         </div>
 
         {/* Filter bar */}
@@ -420,13 +429,15 @@ export default function ShipmentsPage() {
                       )}
                     </div>
 
-                    <button
-                      onClick={() => openStatusModal(shipment)}
-                      className="px-4 py-3 rounded-xl bg-slate-50 hover:bg-slate-100 active:bg-slate-200 border border-slate-200 text-slate-700 font-bold text-xs transition-colors flex items-center justify-center gap-1.5"
-                    >
-                      <Clock className="h-4 w-4" />
-                      تحديث الحالة والبيان 46
-                    </button>
+                    {canUpdateShipment && (
+                      <button
+                        onClick={() => openStatusModal(shipment)}
+                        className="px-4 py-3 rounded-xl bg-slate-50 hover:bg-slate-100 active:bg-slate-200 border border-slate-200 text-slate-700 font-bold text-xs transition-colors flex items-center justify-center gap-1.5"
+                      >
+                        <Clock className="h-4 w-4" />
+                        تحديث الحالة والبيان 46
+                      </button>
+                    )}
                     {['admin', 'accountant'].includes(dbUser?.role || '') && (
                       <Link
                         href="/statements"

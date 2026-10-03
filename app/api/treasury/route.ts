@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthUser } from '@/lib/supabase-server';
+import { getAuthUser, userHasPermission, forbiddenResponse } from '@/lib/supabase-server';
 
 // List Treasury Transactions (IMMUTABLE LEDGER)
 export async function GET(req: NextRequest) {
@@ -58,6 +58,11 @@ export async function POST(req: NextRequest) {
     const { user, error, status, supabase } = await getAuthUser(req);
     if (error || !user) {
       return NextResponse.json({ error: error || 'غير مصرح' }, { status });
+    }
+
+    // RBAC: require treasury.create permission
+    if (!userHasPermission(user, 'treasury.create')) {
+      return forbiddenResponse('غير مصرح لك بتسجيل حركات الخزينة');
     }
 
     const body = await req.json();

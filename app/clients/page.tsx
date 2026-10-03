@@ -49,8 +49,10 @@ interface Client {
 }
 
 export default function ClientsPage() {
-  const { getAuthToken } = useAuth();
+  const { getAuthToken, hasPermission } = useAuth();
   const { showToast } = useToast();
+
+  const canCreateClient = hasPermission('clients.create');
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -199,13 +201,15 @@ export default function ClientsPage() {
               أضف العملاء وعرّف أصناف بضائعهم المسجلة في الجمارك واتفاقيات تسعير الخدمات المتفق عليها.
             </p>
           </div>
-          <button
-            onClick={() => setIsModalOpen(true)}
-            className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-bold py-3 px-5 rounded-2xl shadow-lg shadow-indigo-600/10 transition-colors shrink-0"
-          >
-            <Plus className="h-5 w-5" />
-            إضافة عميل جديد
-          </button>
+          {canCreateClient && (
+            <button
+              onClick={() => setIsModalOpen(true)}
+              className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-bold py-3 px-5 rounded-2xl shadow-lg shadow-indigo-600/10 transition-colors shrink-0"
+            >
+              <Plus className="h-5 w-5" />
+              إضافة عميل جديد
+            </button>
+          )}
         </div>
 
         {/* Filter Bar */}

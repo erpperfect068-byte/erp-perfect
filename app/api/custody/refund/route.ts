@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthUser } from '@/lib/supabase-server';
+import { getAuthUser, userHasPermission, forbiddenResponse } from '@/lib/supabase-server';
 
 // Temporary Custody Settlement: Adds settlement item to custody expenses to bring remaining balance to 0.00
 export async function POST(req: NextRequest) {
@@ -7,6 +7,11 @@ export async function POST(req: NextRequest) {
     const { user, error, status, supabase } = await getAuthUser(req);
     if (error || !user) {
       return NextResponse.json({ error: error || 'غير مصرح' }, { status });
+    }
+
+    // RBAC: require custody.settle permission
+    if (!userHasPermission(user, 'custody.settle')) {
+      return forbiddenResponse('غير مصرح لك بتسوية واسترداد العهدة');
     }
 
     const body = await req.json();

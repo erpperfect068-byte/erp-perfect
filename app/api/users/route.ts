@@ -10,15 +10,22 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: error || 'غير مصرح' }, { status });
     }
 
-    const { data: profilesList, error: profErr } = await supabase
+    const companyId = (user as any).company_id;
+
+    let profilesQuery = supabaseAdmin
       .from('profiles')
       .select('*')
-      .eq('company_id', (user as any).company_id)
       .order('created_at', { ascending: false });
+
+    if (companyId) {
+      profilesQuery = profilesQuery.eq('company_id', companyId);
+    }
+
+    const { data: profilesList, error: profErr } = await profilesQuery;
 
     if (profErr) throw profErr;
 
-    const { data: userRolesList } = await supabase
+    const { data: userRolesList } = await supabaseAdmin
       .from('user_roles')
       .select('*, role:roles(*)');
 
@@ -27,7 +34,7 @@ export async function GET(req: NextRequest) {
       userRoleMap.set(ur.user_id, ur);
     });
 
-    const { data: rolesList } = await supabase
+    const { data: rolesList } = await supabaseAdmin
       .from('roles')
       .select('*')
       .order('name', { ascending: true });
@@ -62,7 +69,7 @@ export async function GET(req: NextRequest) {
 // Direct Admin User Creation (No Email Invitation Waiting)
 export async function POST(req: NextRequest) {
   try {
-    const { user, error, status, supabase } = await getAuthUser(req);
+    const { user, error, status } = await getAuthUser(req);
     if (error || !user) {
       return NextResponse.json({ error: error || 'غير مصرح' }, { status });
     }
@@ -81,8 +88,6 @@ export async function POST(req: NextRequest) {
     const normalizedEmail = email.toLowerCase().trim();
 
     // 1. Create Auth User directly in Supabase Auth (Auto-confirmed)
-    let authUserId: string | undefined;
-
     const { data: adminAuthData, error: adminAuthErr } = await supabaseAdmin.auth.admin.createUser({
       email: normalizedEmail,
       password: password,
@@ -91,64 +96,69 @@ export async function POST(req: NextRequest) {
     });
 
     if (adminAuthErr || !adminAuthData.user) {
-      console.warn('supabaseAdmin.auth.admin.createUser info:', adminAuthErr?.message);
-      // Fallback: signUp via user client
-      const { data: signUpData, error: signUpErr } = await supabase.auth.signUp({
-        email: normalizedEmail,
-        password: password,
-        options: { data: { name } },
-      });
-
-      if (signUpErr || !signUpData.user) {
-        return NextResponse.json({ error: adminAuthErr?.message || signUpErr?.message || 'فشل إنشاء حساب المستخدم' }, { status: 400 });
-      }
-      authUserId = signUpData.user.id;
-    } else {
-      authUserId = adminAuthData.user.id;
+      return NextResponse.json({ error: adminAuthErr?.message || 'فشل إنشاء حساب المستخدم' }, { status: 400 });
     }
 
-    // 2. Insert into profiles with auto-increment sequence fingerprint
-    const { data: newProfile, error: profileErr } = await supabase
-      .from('profiles')
-      .upsert({
-        id: authUserId,
-        company_id: (user as any).company_id || null,
-        email: normalizedEmail,
-        name: name.trim(),
-        is_active: true,
-      })
-      .select()
-      .single();
+    const authUserId = adminAuthData.user.id;
 
-    if (profileErr) throw profileErr;
-
-    // 3. Assign Role in user_roles
-    let assignedRoleId = roleId;
-    if (!assignedRoleId) {
-      const { data: defaultRole } = await supabase.from('roles').select('id').eq('name', 'data_entry').single();
-      assignedRoleId = defaultRole?.id;
-    }
-
-    if (assignedRoleId) {
-      await supabase
-        .from('user_roles')
+    try {
+      // 2. Insert into profiles using supabaseAdmin (bypasses RLS)
+      const { data: newProfile, error: profileErr } = await supabaseAdmin
+        .from('profiles')
         .upsert({
-          user_id: authUserId,
-          role_id: assignedRoleId,
-        });
-    }
+          id: authUserId,
+          company_id: (user as any).company_id || null,
+          email: normalizedEmail,
+          name: name.trim(),
+          is_active: true,
+        })
+        .select()
+        .single();
 
-    return NextResponse.json({
-      success: true,
-      message: 'تم إنشاء حساب الموظف وتفعيله مباشرة بنجاح!',
-      user: {
-        id: newProfile.id,
-        email: newProfile.email,
-        name: newProfile.name,
-        fingerprint: newProfile.fingerprint,
-        roleId: assignedRoleId,
-      },
-    });
+      if (profileErr) {
+        throw profileErr;
+      }
+
+      // 3. Assign Role in user_roles using supabaseAdmin (bypasses RLS)
+      let assignedRoleId = roleId;
+      if (!assignedRoleId) {
+        const { data: defaultRole } = await supabaseAdmin.from('roles').select('id').eq('name', 'data_entry').single();
+        assignedRoleId = defaultRole?.id;
+      }
+
+      if (assignedRoleId) {
+        const { error: roleErr } = await supabaseAdmin
+          .from('user_roles')
+          .upsert(
+            {
+              user_id: authUserId,
+              role_id: assignedRoleId,
+            },
+            { onConflict: 'user_id' }
+          );
+
+        if (roleErr) {
+          throw roleErr;
+        }
+      }
+
+      return NextResponse.json({
+        success: true,
+        message: 'تم إنشاء حساب الموظف وتفعيله مباشرة بنجاح!',
+        user: {
+          id: newProfile.id,
+          email: newProfile.email,
+          name: newProfile.name,
+          fingerprint: newProfile.fingerprint,
+          roleId: assignedRoleId,
+        },
+      });
+    } catch (innerError: any) {
+      // Rollback: Delete auth user if profile or user_roles creation fails
+      console.error('Rolling back auth user creation due to error:', innerError);
+      await supabaseAdmin.auth.admin.deleteUser(authUserId);
+      return NextResponse.json({ error: innerError.message || 'فشل حفظ بيانات الموظف، تم إلغاء العملية' }, { status: 500 });
+    }
   } catch (error: any) {
     console.error('Failed to create user:', error);
     return NextResponse.json({ error: error.message || 'فشل إنشاء حساب الموظف' }, { status: 500 });
@@ -178,12 +188,19 @@ export async function PATCH(req: NextRequest) {
     }
 
     if (roleId) {
-      await supabase
+      const { error: roleErr } = await supabaseAdmin
         .from('user_roles')
-        .upsert({
-          user_id: userId,
-          role_id: roleId,
-        });
+        .upsert(
+          {
+            user_id: userId,
+            role_id: roleId,
+          },
+          { onConflict: 'user_id' }
+        );
+
+      if (roleErr) {
+        throw roleErr;
+      }
     }
 
     return NextResponse.json({

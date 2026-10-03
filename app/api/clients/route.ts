@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthUser } from '@/lib/supabase-server';
+import { getAuthUser, userHasPermission, forbiddenResponse } from '@/lib/supabase-server';
 
 // List Clients
 export async function GET(req: NextRequest) {
@@ -51,6 +51,11 @@ export async function POST(req: NextRequest) {
     const { user, error, status, supabase } = await getAuthUser(req);
     if (error || !user) {
       return NextResponse.json({ error: error || 'غير مصرح' }, { status });
+    }
+
+    // RBAC: require clients.create permission
+    if (!userHasPermission(user, 'clients.create')) {
+      return forbiddenResponse('غير مصرح لك بإضافة عملاء جدد');
     }
 
     const body = await req.json();

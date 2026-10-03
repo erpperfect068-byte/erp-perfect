@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthUser } from '@/lib/supabase-server';
+import { getAuthUser, userHasPermission, forbiddenResponse } from '@/lib/supabase-server';
 
 export async function GET(req: NextRequest) {
   try {
@@ -69,6 +69,11 @@ export async function POST(req: NextRequest) {
     const { user, error, status, supabase } = await getAuthUser(req);
     if (error || !user) {
       return NextResponse.json({ error: error || 'غير مصرح' }, { status });
+    }
+
+    // RBAC: require shipments.create permission
+    if (!userHasPermission(user, 'shipments.create')) {
+      return forbiddenResponse('غير مصرح لك بإنشاء ملفات الشحنات');
     }
 
     const body = await req.json();
@@ -185,6 +190,11 @@ export async function PUT(req: NextRequest) {
     const { user, error, status, supabase } = await getAuthUser(req);
     if (error || !user) {
       return NextResponse.json({ error: error || 'غير مصرح' }, { status });
+    }
+
+    // RBAC: require shipments.update permission
+    if (!userHasPermission(user, 'shipments.update')) {
+      return forbiddenResponse('غير مصرح لك بتعديل بيانات الشحنات');
     }
 
     const body = await req.json();

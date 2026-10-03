@@ -65,7 +65,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .from('user_roles')
         .select('role_id, role:roles(id, name)')
         .eq('user_id', authUser.id)
-        .single();
+        .maybeSingle();
 
       const roleName = (userRoleData?.role as any)?.name || 'data_entry';
       const roleId = userRoleData?.role_id || null;

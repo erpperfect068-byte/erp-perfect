@@ -25,8 +25,9 @@ interface DashboardStats {
   deposits: Record<string, number>;
 }
 
+
 export default function DashboardPage() {
-  const { dbUser, getAuthToken } = useAuth();
+  const { dbUser, getAuthToken, hasPermission } = useAuth();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -77,12 +78,41 @@ export default function DashboardPage() {
     }
   ];
 
-  const quickLinks = [
-    { name: 'إضافة عميل جديد', desc: 'إدخال بيانات عميل جديد واتفاقيات تسعير خدماته المخصصة', path: '/clients', color: 'border-indigo-100 hover:border-indigo-300 hover:bg-indigo-50/10' },
-    { name: 'إنشاء ملف شحنة جمركية', desc: 'تسجيل بوليصة شحنة جديدة وتفاصيل مصلحة الجمارك ورقم الـ ACID', path: '/shipments', color: 'border-emerald-100 hover:border-emerald-300 hover:bg-emerald-50/10' },
-    { name: 'تسجيل أمانة/وديعة عميل', desc: 'استلام وديعة مالية للجمارك من عميل وربطها بكشوف الحساب', path: '/deposits', color: 'border-amber-100 hover:border-amber-300 hover:bg-amber-50/10' },
-    { name: 'معاملة خزينة جديدة', desc: 'تسجيل إيداع أو سحب نقدي مباشر في خزينة المكتب الموحدة', path: '/treasury', color: 'border-purple-100 hover:border-purple-300 hover:bg-purple-50/10' }
+  const allQuickLinks = [
+    {
+      name: 'إضافة عميل جديد',
+      desc: 'إدخال بيانات عميل جديد واتفاقيات تسعير خدماته المخصصة',
+      path: '/clients',
+      color: 'border-indigo-100 hover:border-indigo-300 hover:bg-indigo-50/10',
+      permission: 'clients.create',
+    },
+    {
+      name: 'إنشاء ملف شحنة جمركية',
+      desc: 'تسجيل بوليصة شحنة جديدة وتفاصيل مصلحة الجمارك ورقم الـ ACID',
+      path: '/shipments',
+      color: 'border-emerald-100 hover:border-emerald-300 hover:bg-emerald-50/10',
+      permission: 'shipments.create',
+    },
+    {
+      name: 'تسجيل أمانة/وديعة عميل',
+      desc: 'استلام وديعة مالية للجمارك من عميل وربطها بكشوف الحساب',
+      path: '/deposits',
+      color: 'border-amber-100 hover:border-amber-300 hover:bg-amber-50/10',
+      permission: 'deposits.create',
+    },
+    {
+      name: 'معاملة خزينة جديدة',
+      desc: 'تسجيل إيداع أو سحب نقدي مباشر في خزينة المكتب الموحدة',
+      path: '/treasury',
+      color: 'border-purple-100 hover:border-purple-300 hover:bg-purple-50/10',
+      permission: 'treasury.create',
+    },
   ];
+
+  // Filter quick links: show only those the current user has permission for (admins see all)
+  const quickLinks = allQuickLinks.filter(link => hasPermission(link.permission));
+
+
 
   return (
     <SidebarLayout>
@@ -232,34 +262,38 @@ export default function DashboardPage() {
           </motion.div>
         </div>
 
-        {/* Quick Operations panel */}
-        <div className="bg-white rounded-3xl border border-slate-200/80 p-6 md:p-8 shadow-sm">
-          <div className="flex items-center gap-3 border-b border-slate-100 pb-5">
-            <Activity className="h-5 w-5 text-indigo-600" />
-            <h3 className="text-lg font-bold text-slate-900">اختصارات العمليات السريعة</h3>
+
+        {/* Quick Operations panel: hidden entirely if user has no permitted quick operations */}
+        {quickLinks.length > 0 && (
+          <div className="bg-white rounded-3xl border border-slate-200/80 p-6 md:p-8 shadow-sm">
+            <div className="flex items-center gap-3 border-b border-slate-100 pb-5">
+              <Activity className="h-5 w-5 text-indigo-600" />
+              <h3 className="text-lg font-bold text-slate-900">اختصارات العمليات السريعة</h3>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-6">
+              {quickLinks.map((link, idx) => (
+                <Link
+                  key={idx}
+                  href={link.path}
+                  className={`p-5 rounded-2xl border text-right transition-all duration-200 hover:shadow-md flex flex-col justify-between group h-40 ${link.color}`}
+                >
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">
+                      {link.name}
+                    </h4>
+                    <p className="text-xs text-slate-400 font-light leading-relaxed mt-2">
+                      {link.desc}
+                    </p>
+                  </div>
+                  <span className="text-xs font-bold text-slate-500 group-hover:translate-x-[-4px] transition-transform flex items-center gap-1 mt-4">
+                    ابدأ العملية الآن <ChevronLeft className="h-3.5 w-3.5" />
+                  </span>
+                </Link>
+              ))}
+            </div>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-6">
-            {quickLinks.map((link, idx) => (
-              <Link
-                key={idx}
-                href={link.path}
-                className={`p-5 rounded-2xl border text-right transition-all duration-200 hover:shadow-md flex flex-col justify-between group h-40 ${link.color}`}
-              >
-                <div>
-                  <h4 className="text-sm font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">
-                    {link.name}
-                  </h4>
-                  <p className="text-xs text-slate-400 font-light leading-relaxed mt-2">
-                    {link.desc}
-                  </p>
-                </div>
-                <span className="text-xs font-bold text-slate-500 group-hover:translate-x-[-4px] transition-transform flex items-center gap-1 mt-4">
-                  ابدأ العملية الآن <ChevronLeft className="h-3.5 w-3.5" />
-                </span>
-              </Link>
-            ))}
-          </div>
-        </div>
+        )}
+
 
         {/* Additional information on exchange rate standard */}
         <div className="p-5 rounded-2xl bg-indigo-50/40 border border-indigo-100 flex items-start gap-4">

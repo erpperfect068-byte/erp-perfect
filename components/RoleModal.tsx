@@ -2,13 +2,15 @@
 
 import React, { useState, useEffect } from 'react';
 import { X, Check, Shield, Layers, AlertCircle, Save } from 'lucide-react';
+import { MODULE_LABELS, getPermissionDisplayLabel } from '@/lib/permissions';
 
 export interface PermissionItem {
   id: string;
   code: string;
   module: string;
-  labelAr: string;
+  labelAr?: string;
   descriptionAr?: string;
+  description?: string;
 }
 
 export interface PermissionGroup {
@@ -215,6 +217,7 @@ export default function RoleModal({
                 const groupCodes = group.permissions.map((p) => p.code);
                 const allSelected = groupCodes.every((c) => selectedCodes.includes(c));
                 const someSelected = groupCodes.some((c) => selectedCodes.includes(c));
+                const groupTitle = MODULE_LABELS[group.module] || group.moduleLabel || group.module;
 
                 return (
                   <div
@@ -223,7 +226,7 @@ export default function RoleModal({
                   >
                     <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-100">
                       <div className="flex items-center gap-2">
-                        <span className="font-bold text-slate-800 text-xs">{group.moduleLabel}</span>
+                        <span className="font-bold text-slate-800 text-xs">{groupTitle}</span>
                         <span className="text-[11px] text-slate-400">({group.permissions.length} صلاحيات)</span>
                       </div>
                       <button
@@ -244,6 +247,10 @@ export default function RoleModal({
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                       {group.permissions.map((perm) => {
                         const isChecked = selectedCodes.includes(perm.code);
+                        const displayLabel = getPermissionDisplayLabel(
+                          perm.code,
+                          perm.labelAr || perm.descriptionAr || (perm as any).description
+                        );
                         return (
                           <label
                             key={perm.code}
@@ -257,12 +264,11 @@ export default function RoleModal({
                               type="checkbox"
                               checked={isChecked}
                               onChange={() => togglePermission(perm.code)}
-                              className="mt-0.5 rounded text-indigo-600 focus:ring-indigo-500 h-4 w-4 border-slate-300"
+                              className="mt-0.5 rounded text-indigo-600 focus:ring-indigo-500 h-4 w-4 border-slate-300 shrink-0"
                             />
                             <div className="flex-1 min-w-0">
-                              <span className="text-xs font-semibold block leading-tight">{perm.labelAr}</span>
-                              <span className="text-[10px] text-slate-400 font-mono block mt-0.5 truncate">
-                                {perm.code}
+                              <span className="text-xs font-semibold block leading-tight text-slate-800">
+                                {displayLabel}
                               </span>
                             </div>
                           </label>
