@@ -21,9 +21,18 @@ export async function GET(req: NextRequest) {
       profilesQuery = profilesQuery.eq('company_id', companyId);
     }
 
-    const { data: profilesList, error: profErr } = await profilesQuery;
+    let { data: profilesList, error: profErr } = await profilesQuery;
 
     if (profErr) throw profErr;
+
+    // Fallback: If company filter returned empty profiles, fetch all profiles
+    if (!profilesList || profilesList.length === 0) {
+      const { data: allProfiles } = await supabaseAdmin
+        .from('profiles')
+        .select('*')
+        .order('created_at', { ascending: false });
+      profilesList = allProfiles || [];
+    }
 
     const { data: userRolesList } = await supabaseAdmin
       .from('user_roles')
