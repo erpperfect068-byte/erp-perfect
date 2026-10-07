@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import SidebarLayout from '../../components/SidebarLayout';
+import PermissionGuard from '../../components/PermissionGuard';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../components/Toast';
 import { motion } from 'motion/react';
@@ -204,7 +205,8 @@ export default function DepositsPage() {
   });
 
   return (
-    <SidebarLayout>
+    <PermissionGuard requiredPermission={["deposits.view", "deposits.create"]} pageTitle="أمانات وودائع العملاء">
+      <SidebarLayout>
       <div className="space-y-6">
         {/* Header Section */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -708,5 +710,6 @@ export default function DepositsPage() {
         )}
       </div>
     </SidebarLayout>
+    </PermissionGuard>
   );
 }

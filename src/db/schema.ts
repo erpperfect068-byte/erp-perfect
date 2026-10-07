@@ -187,19 +187,39 @@ export const clientDeposits = pgTable('client_deposits', {
   createdBy: uuid('created_by').references(() => users.id),
 });
 
-// 13. Treasury Transactions Table (Cash / Bank Movements)
+// 13. Treasuries Table (Multiple Safes / Accounts)
+export const treasuries = pgTable('treasuries', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  companyId: text('company_id'),
+  name: text('name').notNull(),
+  code: text('code'),
+  type: text('type').notNull().default('cash'), // cash, bank
+  isMain: boolean('is_main').notNull().default(false),
+  isActive: boolean('is_active').notNull().default(true),
+  notes: text('notes'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  createdBy: uuid('created_by').references(() => users.id),
+});
+
+// 14. Treasury Transactions Table (Cash / Bank Movements)
 export const treasuryTransactions = pgTable('treasury_transactions', {
   id: uuid('id').primaryKey().defaultRandom(),
+  companyId: text('company_id'),
+  treasuryId: uuid('treasury_id').references(() => treasuries.id),
   statementId: uuid('statement_id').references(() => statements.id),
   clientId: uuid('client_id').references(() => clients.id),
-  transactionType: text('transaction_type').notNull(), // deposit, withdraw, reversal
+  transactionType: text('transaction_type').notNull(), // deposit, withdraw, transfer_out, transfer_in, reversal
   amount: numeric('amount', { precision: 18, scale: 2 }).notNull(),
   currency: text('currency').notNull().default('EGP'),
   exchangeRateAtTransaction: numeric('exchange_rate_at_transaction', { precision: 18, scale: 4 }).notNull().default('1.0000'),
   transactionDate: timestamp('transaction_date', { withTimezone: true }).notNull().defaultNow(),
   referenceNumber: text('reference_number'),
+  transferGroupId: uuid('transfer_group_id'),
+  relatedTreasuryId: uuid('related_treasury_id').references(() => treasuries.id),
   isReversed: boolean('is_reversed').notNull().default(false),
   reversedByTransactionId: uuid('reversed_by_transaction_id'),
+  reversalReason: text('reversal_reason'),
   notes: text('notes'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -243,6 +263,41 @@ export const userInvitations = pgTable('user_invitations', {
   invitedAt: timestamp('invited_at', { withTimezone: true }).notNull().defaultNow(),
   acceptedAt: timestamp('accepted_at', { withTimezone: true }),
   expiresAt: timestamp('expires_at', { withTimezone: true }),
+});
+
+// 17. Employee Custodies Table
+export const employeeCustodies = pgTable('employee_custodies', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  companyId: uuid('company_id'),
+  employeeId: uuid('employee_id').references(() => users.id),
+  treasuryId: uuid('treasury_id').references(() => treasuries.id),
+  treasuryTransactionId: uuid('treasury_transaction_id').references(() => treasuryTransactions.id),
+  amount: numeric('amount', { precision: 18, scale: 2 }).notNull(),
+  currency: text('currency').notNull().default('EGP'),
+  status: text('status').notNull().default('open'), // open, closed
+  issuedDate: timestamp('issued_date', { withTimezone: true }).notNull().defaultNow(),
+  closedAt: timestamp('closed_at', { withTimezone: true }),
+  closedBy: uuid('closed_by').references(() => users.id),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  createdBy: uuid('created_by').references(() => users.id),
+});
+
+// 18. Custody Expenses Table
+export const custodyExpenses = pgTable('custody_expenses', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  companyId: uuid('company_id'),
+  custodyId: uuid('custody_id').notNull().references(() => employeeCustodies.id, { onDelete: 'cascade' }),
+  shipmentId: uuid('shipment_id').references(() => shipments.id),
+  expenseType: text('expense_type').notNull(),
+  amount: numeric('amount', { precision: 18, scale: 2 }).notNull(),
+  currency: text('currency').notNull().default('EGP'),
+  description: text('description').notNull(),
+  receiptNumber: text('receipt_number'),
+  expenseDate: timestamp('expense_date', { withTimezone: true }).notNull().defaultNow(),
+  isReversed: boolean('is_reversed').notNull().default(false),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  createdBy: uuid('created_by').references(() => users.id),
 });
 
 // Relations Definitions

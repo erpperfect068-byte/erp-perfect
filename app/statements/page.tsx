@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import SidebarLayout from '../../components/SidebarLayout';
+import PermissionGuard from '../../components/PermissionGuard';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../components/Toast';
 import { motion } from 'motion/react';
@@ -219,7 +220,8 @@ export default function StatementsPage() {
   );
 
   return (
-    <SidebarLayout>
+    <PermissionGuard requiredPermission={["statements.view", "statements.create"]} pageTitle="كشوف الحسابات والتسويات">
+      <SidebarLayout>
       <div className="space-y-6">
         {/* Header Block */}
         <div>
@@ -582,5 +584,6 @@ export default function StatementsPage() {
         )}
       </div>
     </SidebarLayout>
+    </PermissionGuard>
   );
 }

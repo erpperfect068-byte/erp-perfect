@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthUser, userHasPermission, forbiddenResponse } from '@/lib/supabase-server';
 
-// GET: Fetch list of employee custodies with employee details, expenses, and shipment info
+// GET: Fetch list of employee custodies with employee details, treasury, expenses, and shipment info
 export async function GET(req: NextRequest) {
   try {
     const { user, error, status, supabase } = await getAuthUser(req);
@@ -14,6 +14,7 @@ export async function GET(req: NextRequest) {
       .select(`
         *,
         employee:profiles!employee_custodies_employee_id_fkey(id, name, email, fingerprint),
+        treasury:treasuries!employee_custodies_treasury_id_fkey(id, name, type),
         expenses:custody_expenses(
           *,
           shipment:shipments(
@@ -72,6 +73,12 @@ export async function GET(req: NextRequest) {
           email: c.employee.email,
           fingerprint: c.employee.fingerprint,
         } : null,
+        treasuryId: c.treasury_id,
+        treasury: c.treasury ? {
+          id: c.treasury.id,
+          name: c.treasury.name,
+          type: c.treasury.type,
+        } : null,
         amount: c.amount,
         totalIssued,
         totalSpent,
@@ -96,7 +103,30 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// POST: Issue new custody & record withdrawal with CUST-fingerprint reference
+// Helper function to calculate net balance for a treasury in a specific currency
+async function getTreasuryCurrencyBalance(supabase: any, companyId: string, treasuryId: string, currency: string): Promise<number> {
+  const { data: txs, error } = await supabase
+    .from('treasury_transactions')
+    .select('transaction_type, amount')
+    .eq('company_id', companyId)
+    .eq('treasury_id', treasuryId)
+    .eq('currency', currency)
+    .eq('is_reversed', false);
+
+  if (error || !txs) return 0;
+
+  return txs.reduce((sum: number, tx: any) => {
+    const amt = parseFloat(tx.amount) || 0;
+    if (tx.transaction_type === 'deposit' || tx.transaction_type === 'transfer_in') {
+      return sum + amt;
+    } else if (tx.transaction_type === 'withdraw' || tx.transaction_type === 'transfer_out') {
+      return sum - amt;
+    }
+    return sum;
+  }, 0);
+}
+
+// POST: Issue new custody with Treasury selection, pre-check balance, and optional multi-currency support
 export async function POST(req: NextRequest) {
   try {
     const { user, error, status, supabase } = await getAuthUser(req);
@@ -110,73 +140,140 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { employeeId, amount, currency = 'EGP', notes } = body;
+    const { employeeId, treasuryId, amount, currency = 'EGP', amounts, notes } = body;
 
-    if (!employeeId || !amount || parseFloat(amount) <= 0) {
-      return NextResponse.json({ error: 'يرجى تحديد الموظف ومبلغ العهدة بشكل صحيح' }, { status: 400 });
+    if (!employeeId) {
+      return NextResponse.json({ error: 'يرجى اختيار الموظف المستلم' }, { status: 400 });
+    }
+    if (!treasuryId) {
+      return NextResponse.json({ error: 'يرجى اختيار الخزنة المراد الصرف منها' }, { status: 400 });
     }
 
-    // 1. Insert custody record
-    const { data: newCustody, error: custodyErr } = await supabase
-      .from('employee_custodies')
-      .insert({
-        company_id: (user as any).company_id || null,
-        employee_id: employeeId,
-        amount: parseFloat(amount),
-        currency: currency,
-        status: 'open',
-        issued_date: new Date().toISOString(),
-        created_by: user.id,
-        updated_at: new Date().toISOString(),
-      })
-      .select('*, employee:profiles!employee_custodies_employee_id_fkey(id, name, email, fingerprint)')
+    // Normalize amounts to array: support single amount/currency or multi-currency array `amounts: [{ amount: 100, currency: 'USD' }, ...]`
+    let itemsToDisburse: Array<{ amount: number; currency: string }> = [];
+    if (Array.isArray(amounts) && amounts.length > 0) {
+      itemsToDisburse = amounts
+        .map((item: any) => ({
+          amount: parseFloat(item.amount),
+          currency: (item.currency || 'EGP').toUpperCase(),
+        }))
+        .filter((item) => !isNaN(item.amount) && item.amount > 0);
+    } else if (amount && parseFloat(amount) > 0) {
+      itemsToDisburse = [{ amount: parseFloat(amount), currency: (currency || 'EGP').toUpperCase() }];
+    }
+
+    if (itemsToDisburse.length === 0) {
+      return NextResponse.json({ error: 'يرجى إدخال مبلغ صحيح على الأقل لصرف العهدة' }, { status: 400 });
+    }
+
+    // 1. Fetch Treasury details
+    const { data: treasury, error: treasuryErr } = await supabase
+      .from('treasuries')
+      .select('id, name')
+      .eq('id', treasuryId)
       .single();
 
-    if (custodyErr) throw custodyErr;
+    if (treasuryErr || !treasury) {
+      return NextResponse.json({ error: 'الخزنة المختارة غير موجودة أو معطلة' }, { status: 404 });
+    }
 
-    const empName = newCustody.employee?.name || 'الموظف';
-    const empFingerprint = newCustody.employee?.fingerprint || 100;
+    // 2. Fetch Employee details
+    const { data: employee, error: empErr } = await supabase
+      .from('profiles')
+      .select('id, name, email, fingerprint')
+      .eq('id', employeeId)
+      .single();
+
+    if (empErr || !employee) {
+      return NextResponse.json({ error: 'الموظف المحدد غير موجود' }, { status: 404 });
+    }
+
+    const companyId = (user as any).company_id;
+
+    // 3. Pre-check Treasury Balance for EACH requested currency
+    for (const item of itemsToDisburse) {
+      const availableBalance = await getTreasuryCurrencyBalance(supabase, companyId, treasuryId, item.currency);
+      if (availableBalance < item.amount) {
+        return NextResponse.json(
+          {
+            error: `عفواً، رصيد عملة (${item.currency}) في خزنة "${treasury.name}" غير كافٍ للصرف. الرصيد المتاح حالياً: ${availableBalance.toLocaleString('ar-EG')} ${item.currency}، بينما المطلوب صرفه: ${item.amount.toLocaleString('ar-EG')} ${item.currency}.`,
+          },
+          { status: 400 }
+        );
+      }
+    }
+
+    // 4. Perform disbursement: create custody records and record withdrawal transactions for each currency
+    const createdCustodies: any[] = [];
+    const empName = employee.name || 'الموظف';
+    const empFingerprint = employee.fingerprint || 100;
     const refNo = `CUST-${empFingerprint}`;
 
-    // 2. Insert real withdrawal transaction in treasury_transactions with CUST-fingerprint reference
-    const { data: treasuryTx, error: treasuryErr } = await supabase
-      .from('treasury_transactions')
-      .insert({
-        company_id: (user as any).company_id || null,
-        transaction_type: 'withdraw',
-        amount: parseFloat(amount),
-        currency: currency || 'EGP',
-        notes: `صرف عهدة نقدية للموظف: ${empName}_${empFingerprint}${notes ? ` (${notes})` : ''}`,
-        reference_number: refNo,
-        transaction_date: new Date().toISOString().split('T')[0],
-        created_by: user.id,
-      })
-      .select()
-      .single();
+    for (const item of itemsToDisburse) {
+      // Insert custody record
+      const { data: newCustody, error: custodyErr } = await supabase
+        .from('employee_custodies')
+        .insert({
+          company_id: companyId || null,
+          employee_id: employeeId,
+          treasury_id: treasuryId,
+          amount: item.amount,
+          currency: item.currency,
+          status: 'open',
+          issued_date: new Date().toISOString(),
+          created_by: user.id,
+          updated_at: new Date().toISOString(),
+        })
+        .select()
+        .single();
 
-    if (treasuryErr) throw treasuryErr;
+      if (custodyErr) throw custodyErr;
 
-    // 3. Link treasury_transaction_id back to employee_custodies
-    await supabase
-      .from('employee_custodies')
-      .update({ treasury_transaction_id: treasuryTx.id })
-      .eq('id', newCustody.id);
+      // Insert real withdrawal transaction in treasury_transactions for selected treasury
+      const { data: treasuryTx, error: treasuryTxErr } = await supabase
+        .from('treasury_transactions')
+        .insert({
+          company_id: companyId || null,
+          treasury_id: treasuryId,
+          transaction_type: 'withdraw',
+          amount: item.amount,
+          currency: item.currency,
+          notes: `صرف عهدة نقدية للموظف: ${empName}_${empFingerprint} من خزنة ${treasury.name}${notes ? ` (${notes})` : ''}`,
+          reference_number: refNo,
+          transaction_date: new Date().toISOString().split('T')[0],
+          created_by: user.id,
+        })
+        .select()
+        .single();
 
-    return NextResponse.json({
-      id: newCustody.id,
-      employeeId: newCustody.employee_id,
-      employee: newCustody.employee,
-      amount: newCustody.amount,
-      totalIssued: parseFloat(newCustody.amount),
-      totalSpent: 0,
-      remainingAmount: parseFloat(newCustody.amount),
-      hasSettlementItem: false,
-      currency: newCustody.currency,
-      status: newCustody.status,
-      issuedDate: newCustody.issued_date,
-      expenses: [],
-      createdAt: newCustody.created_at,
-    }, { status: 201 });
+      if (treasuryTxErr) throw treasuryTxErr;
+
+      // Link treasury_transaction_id back to employee_custodies
+      await supabase
+        .from('employee_custodies')
+        .update({ treasury_transaction_id: treasuryTx.id })
+        .eq('id', newCustody.id);
+
+      createdCustodies.push({
+        ...newCustody,
+        employee,
+        treasury,
+        totalIssued: item.amount,
+        totalSpent: 0,
+        remainingAmount: item.amount,
+        hasSettlementItem: false,
+        expenses: [],
+      });
+    }
+
+    return NextResponse.json(
+      {
+        message: 'تم صرف العهدة وتسجيل سحب المبالغ من الخزنة بنجاح',
+        custodies: createdCustodies,
+        custody: createdCustodies[0], // Backward compatibility for single custody response
+      },
+      { status: 201 }
+    );
   } catch (error: any) {
     console.error('Failed to issue custody:', error);
     return NextResponse.json({ error: error.message || 'فشل صرف العهدة' }, { status: 500 });

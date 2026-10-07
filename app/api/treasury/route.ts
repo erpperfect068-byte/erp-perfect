@@ -9,16 +9,31 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: error || 'غير مصرح' }, { status });
     }
 
-    const { data: txList, error: dbError } = await supabase
+    if (!user.company_id) {
+      return NextResponse.json({ error: 'لم يتم تحديد الشركة الخاصة بالمستخدم' }, { status: 400 });
+    }
+
+    const { searchParams } = new URL(req.url);
+    const treasuryIdParam = searchParams.get('treasuryId');
+
+    let query = supabase
       .from('treasury_transactions')
-      .select('*, client:clients(*), statement:statements(*, shipment:shipments(*))')
-      .eq('company_id', (user as any).company_id)
+      .select('*, client:clients(*), statement:statements(*, shipment:shipments(*)), treasury:treasuries!treasury_id(*), relatedTreasury:treasuries!related_treasury_id(*)')
+      .eq('company_id', user.company_id)
       .order('transaction_date', { ascending: false });
 
+    if (treasuryIdParam && treasuryIdParam !== 'all') {
+      query = query.eq('treasury_id', treasuryIdParam);
+    }
+
+    const { data: txList, error: dbError } = await query;
     if (dbError) throw dbError;
 
     const formattedTransactions = (txList || []).map((tx: any) => ({
       ...tx,
+      treasuryId: tx.treasury_id,
+      relatedTreasuryId: tx.related_treasury_id,
+      transferGroupId: tx.transfer_group_id,
       clientId: tx.client_id,
       statementId: tx.statement_id,
       transactionType: tx.transaction_type,
@@ -31,6 +46,18 @@ export async function GET(req: NextRequest) {
       reversalReason: tx.reversal_reason,
       transactionDate: tx.transaction_date,
       createdAt: tx.created_at,
+      treasury: tx.treasury ? {
+        id: tx.treasury.id,
+        name: tx.treasury.name,
+        code: tx.treasury.code,
+        type: tx.treasury.type,
+      } : null,
+      relatedTreasury: tx.relatedTreasury ? {
+        id: tx.relatedTreasury.id,
+        name: tx.relatedTreasury.name,
+        code: tx.relatedTreasury.code,
+        type: tx.relatedTreasury.type,
+      } : null,
       client: tx.client ? {
         ...tx.client,
         contactPerson: tx.client.contact_person,
@@ -60,6 +87,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: error || 'غير مصرح' }, { status });
     }
 
+    if (!user.company_id) {
+      return NextResponse.json({ error: 'لم يتم تحديد الشركة الخاصة بالمستخدم' }, { status: 400 });
+    }
+
     // RBAC: require treasury.create permission
     if (!userHasPermission(user, 'treasury.create')) {
       return forbiddenResponse('غير مصرح لك بتسجيل حركات الخزينة');
@@ -67,6 +98,7 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json();
     const {
+      treasuryId,
       transactionType,
       amount,
       currency = 'EGP',
@@ -80,6 +112,22 @@ export async function POST(req: NextRequest) {
       reversalReason,
     } = body;
 
+    // Resolve treasury ID (default to main treasury of THIS company if not passed)
+    let selectedTreasuryId = treasuryId;
+    if (!selectedTreasuryId) {
+      const { data: mainT } = await supabase
+        .from('treasuries')
+        .select('id')
+        .eq('company_id', user.company_id)
+        .eq('is_main', true)
+        .single();
+      selectedTreasuryId = mainT?.id;
+    }
+
+    if (!selectedTreasuryId) {
+      return NextResponse.json({ error: 'لم يتم العثور على خزنة رئيسية لهذه الشركة' }, { status: 400 });
+    }
+
     // Handle Reversal Action (NO DIRECT UPDATE - REVERSAL ONLY)
     if (action === 'reversal' || transactionType === 'reversal') {
       if (!targetTransactionId) {
@@ -91,6 +139,7 @@ export async function POST(req: NextRequest) {
         .from('treasury_transactions')
         .select('*')
         .eq('id', targetTransactionId)
+        .eq('company_id', user.company_id)
         .single();
 
       if (fetchErr || !origTx) {
@@ -101,14 +150,20 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'هذه الحركة معكوسة بالفعل مسبقاً' }, { status: 400 });
       }
 
-      const reverseType = origTx.transaction_type === 'deposit' ? 'withdraw' : 'deposit';
+      let reverseType = 'withdraw';
+      if (['withdraw', 'transfer_out'].includes(origTx.transaction_type)) {
+        reverseType = 'deposit';
+      }
+
       const parsedAmount = parseFloat(Number(origTx.amount).toFixed(2));
 
       // 1. Insert reversing transaction
       const { data: revTx, error: revErr } = await supabase
         .from('treasury_transactions')
         .insert({
-          company_id: (user as any).company_id || null,
+          company_id: user.company_id,
+          treasury_id: origTx.treasury_id,
+          related_treasury_id: origTx.related_treasury_id,
           client_id: origTx.client_id,
           statement_id: origTx.statement_id,
           transaction_type: reverseType,
@@ -152,7 +207,8 @@ export async function POST(req: NextRequest) {
     const { data: newTransaction, error: insertErr } = await supabase
       .from('treasury_transactions')
       .insert({
-        company_id: (user as any).company_id || null,
+        company_id: user.company_id,
+        treasury_id: selectedTreasuryId,
         client_id: clientId || null,
         statement_id: statementId || null,
         transaction_type: transactionType,

@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import SidebarLayout from '../../components/SidebarLayout';
+import PermissionGuard from '../../components/PermissionGuard';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../components/Toast';
 import Link from 'next/link';
@@ -188,7 +189,8 @@ export default function UsersPage() {
   const inactiveUsers = users.filter((u) => !u.isActive);
 
   return (
-    <SidebarLayout>
+    <PermissionGuard requiredPermission={["users.view", "roles.manage"]} pageTitle="إدارة الموظفين والعمل">
+      <SidebarLayout>
       <div className="space-y-6">
         {/* Header Block */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -517,5 +519,6 @@ export default function UsersPage() {
         </div>
       )}
     </SidebarLayout>
+    </PermissionGuard>
   );
 }

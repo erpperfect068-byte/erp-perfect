@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import SidebarLayout from '../../components/SidebarLayout';
+import PermissionGuard from '../../components/PermissionGuard';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../components/Toast';
 import {
@@ -415,7 +416,8 @@ export default function AuditPage() {
   }
 
   return (
-    <SidebarLayout>
+    <PermissionGuard requiredPermission="audit.view" pageTitle="سجل الرقابة والتدقيق">
+      <SidebarLayout>
       <div className="space-y-6">
         {/* Header Breadcrumb & Export Action */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-5">
@@ -724,5 +726,6 @@ export default function AuditPage() {
         )}
       </div>
     </SidebarLayout>
+    </PermissionGuard>
   );
 }

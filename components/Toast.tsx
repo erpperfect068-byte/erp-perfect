@@ -40,13 +40,13 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     <ToastContext.Provider value={{ toasts, showToast, removeToast }}>
       {children}
       {/* Toast Container */}
-      <div className="fixed bottom-5 left-5 z-50 flex flex-col gap-2 max-w-sm w-full" dir="rtl">
+      <div className="fixed bottom-6 left-6 z-[99999] flex flex-col gap-2.5 max-w-md w-full pointer-events-none" dir="rtl">
         {toasts.map((toast) => {
           const styles = {
-            success: 'bg-emerald-50 border-emerald-200 text-emerald-800 icon-color-emerald-600',
-            error: 'bg-red-50 border-red-200 text-red-800 icon-color-red-600',
-            warning: 'bg-amber-50 border-amber-200 text-amber-800 icon-color-amber-600',
-            info: 'bg-indigo-50 border-indigo-200 text-indigo-800 icon-color-indigo-600',
+            success: 'bg-emerald-950 border-emerald-800 text-emerald-100 shadow-emerald-950/20',
+            error: 'bg-rose-950 border-rose-800 text-rose-100 shadow-rose-950/30',
+            warning: 'bg-amber-950 border-amber-800 text-amber-100 shadow-amber-950/20',
+            info: 'bg-slate-900 border-slate-700 text-slate-100 shadow-slate-900/30',
           }[toast.type];
 
           const Icon = {
@@ -56,18 +56,25 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
             info: Info,
           }[toast.type];
 
+          const iconColor = {
+            success: 'text-emerald-400',
+            error: 'text-rose-400',
+            warning: 'text-amber-400',
+            info: 'text-indigo-400',
+          }[toast.type];
+
           return (
             <div
               key={toast.id}
-              className={`flex items-center justify-between p-4 rounded-xl border shadow-lg transition-all duration-300 transform translate-y-0 animate-in fade-in slide-in-from-bottom-5 ${styles}`}
+              className={`pointer-events-auto flex items-center justify-between p-4 rounded-2xl border shadow-2xl transition-all duration-300 transform translate-y-0 animate-in fade-in slide-in-from-bottom-5 ${styles}`}
             >
               <div className="flex items-center gap-3">
-                <Icon className="h-5 w-5 shrink-0" />
-                <p className="text-sm font-semibold">{toast.message}</p>
+                <Icon className={`h-5 w-5 shrink-0 ${iconColor}`} />
+                <p className="text-xs md:text-sm font-bold leading-snug">{toast.message}</p>
               </div>
               <button
                 onClick={() => removeToast(toast.id)}
-                className="p-1 rounded-lg hover:bg-black/5 text-slate-400 hover:text-slate-600 transition-colors shrink-0"
+                className="p-1 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white transition-colors shrink-0 mr-2"
               >
                 <X className="h-4 w-4" />
               </button>

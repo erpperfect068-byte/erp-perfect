@@ -8,19 +8,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: error || 'غير مصرح' }, { status });
     }
 
-    // RBAC: require custody.close permission
-    if (!userHasPermission(user, 'custody.close')) {
+    // RBAC: require custody.settle or custody.close permission
+    if (!userHasPermission(user, 'custody.settle') && !userHasPermission(user, 'custody.close')) {
       return forbiddenResponse('غير مصرح لك بإقفال العهدة وتوريد المتبقي للخزينة');
     }
 
     const body = await req.json();
-    const { custodyId } = body;
+    const { custodyId, treasuryId } = body;
 
     if (!custodyId) {
       return NextResponse.json({ error: 'معرف العهدة مطلوب' }, { status: 400 });
     }
 
-    // 1. Fetch custody & expenses with employee profile (including fingerprint)
+    // 1. Fetch custody & expenses with employee profile (including fingerprint) and treasury info
     const { data: custody, error: custodyErr } = await supabase
       .from('employee_custodies')
       .select('*, employee:profiles!employee_custodies_employee_id_fkey(name, fingerprint), expenses:custody_expenses(*)')
@@ -52,12 +52,16 @@ export async function POST(req: NextRequest) {
     const empFingerprint = custody.employee?.fingerprint || 100;
     const refNo = `REF-${empFingerprint}`;
 
+    // Determine target treasury for deposit
+    const targetTreasuryId = treasuryId || custody.treasury_id || null;
+
     // 2. Real Treasury Deposit: Insert deposit transaction using REF-fingerprint format
     if (refundAmount > 0) {
       const { error: depositErr } = await supabase
         .from('treasury_transactions')
         .insert({
           company_id: (user as any).company_id || null,
+          treasury_id: targetTreasuryId,
           transaction_type: 'deposit',
           amount: parseFloat(refundAmount.toFixed(2)),
           currency: custody.currency || 'EGP',

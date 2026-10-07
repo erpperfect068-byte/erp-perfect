@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import SidebarLayout from '../../../components/SidebarLayout';
+import PermissionGuard from '../../../components/PermissionGuard';
 import { useAuth } from '../../../context/AuthContext';
 import { useToast } from '../../../components/Toast';
 import RoleModal, { PermissionGroup, RoleData } from '../../../components/RoleModal';
@@ -179,7 +180,8 @@ export default function RolesSettingsPage() {
   }
 
   return (
-    <SidebarLayout>
+    <PermissionGuard requiredPermission="roles.manage" pageTitle="إدارة الأدوار والصلاحيات">
+      <SidebarLayout>
       <div className="space-y-8 max-w-7xl mx-auto pb-12">
         {/* Header Breadcrumb & Actions */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-5">
@@ -417,5 +419,6 @@ export default function RolesSettingsPage() {
         </div>
       )}
     </SidebarLayout>
+    </PermissionGuard>
   );
 }

@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import SidebarLayout from '../../components/SidebarLayout';
+import PermissionGuard from '../../components/PermissionGuard';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../components/Toast';
 import {
@@ -71,6 +72,8 @@ interface Custody {
   id: string;
   employeeId: string;
   employee: Employee | null;
+  treasuryId?: string;
+  treasury?: { id: string; name: string; type: string } | null;
   amount: number;
   totalIssued: number;
   totalSpent: number;
@@ -90,6 +93,7 @@ export default function CustodyPage() {
 
   const [custodies, setCustodies] = useState<Custody[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [treasuries, setTreasuries] = useState<any[]>([]);
   const [shipments, setShipments] = useState<Shipment[]>([]);
   const [expenseTypesList, setExpenseTypesList] = useState<ExpenseType[]>([]);
   const [loading, setLoading] = useState(true);
@@ -108,10 +112,12 @@ export default function CustodyPage() {
   const [isAddTypeOpen, setIsAddTypeOpen] = useState(false);
   const [selectedCustody, setSelectedCustody] = useState<Custody | null>(null);
 
-  // Issue Custody Form
+  // Issue Custody Form (Multi-Currency & Treasury selection)
   const [issueEmployeeId, setIssueEmployeeId] = useState('');
-  const [issueAmount, setIssueAmount] = useState('');
-  const [issueCurrency, setIssueCurrency] = useState('EGP');
+  const [issueTreasuryId, setIssueTreasuryId] = useState('');
+  const [issueEgpAmount, setIssueEgpAmount] = useState('');
+  const [issueUsdAmount, setIssueUsdAmount] = useState('');
+  const [issueEurAmount, setIssueEurAmount] = useState('');
   const [issueNotes, setIssueNotes] = useState('');
 
   // Add Expense Form
@@ -142,6 +148,18 @@ export default function CustodyPage() {
       // Load custodies
       const custRes = await fetch('/api/custody', { headers });
       if (custRes.ok) setCustodies(await custRes.json());
+
+      // Load treasuries with balances
+      const trRes = await fetch('/api/treasuries', { headers });
+      if (trRes.ok) {
+        const trData = await trRes.json();
+        const tList = trData.treasuries || [];
+        setTreasuries(tList);
+        if (tList.length > 0 && !issueTreasuryId) {
+          const mainSafe = tList.find((t: any) => t.isMain) || tList[0];
+          setIssueTreasuryId(mainSafe.id);
+        }
+      }
 
       // Load employees (users)
       const empRes = await fetch('/api/users', { headers });
@@ -182,12 +200,57 @@ export default function CustodyPage() {
     loadData();
   }, [getAuthToken]);
 
+  const parseResponseError = async (res: Response, defaultMsg: string): Promise<string> => {
+    try {
+      const data = await res.json();
+      return data.error || data.message || defaultMsg;
+    } catch {
+      return defaultMsg;
+    }
+  };
+
+  // Selected Treasury object & balance lookup
+  const selectedTreasury = treasuries.find((t) => t.id === issueTreasuryId);
+
   // Handle Issue Custody
   const handleIssueCustody = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!issueEmployeeId || !issueAmount || parseFloat(issueAmount) <= 0) {
-      showToast('يرجى تحديد الموظف ومبلغ العهدة بشكل صحيح', 'warning');
+    if (!issueEmployeeId) {
+      showToast('يرجى تحديد الموظف المستلم', 'warning');
       return;
+    }
+    if (!issueTreasuryId) {
+      showToast('يرجى تحديد الخزنة المراد الصرف منها', 'warning');
+      return;
+    }
+
+    const amountsToIssue: Array<{ amount: number; currency: string }> = [];
+    const egp = parseFloat(issueEgpAmount);
+    const usd = parseFloat(issueUsdAmount);
+    const eur = parseFloat(issueEurAmount);
+
+    if (!isNaN(egp) && egp > 0) amountsToIssue.push({ amount: egp, currency: 'EGP' });
+    if (!isNaN(usd) && usd > 0) amountsToIssue.push({ amount: usd, currency: 'USD' });
+    if (!isNaN(eur) && eur > 0) amountsToIssue.push({ amount: eur, currency: 'EUR' });
+
+    if (amountsToIssue.length === 0) {
+      showToast('يرجى كتابة مبلغ صحيح لعملة واحدة على الأقل لصرف العهدة', 'warning');
+      return;
+    }
+
+    // Pre-check balances on client side before hitting API
+    if (selectedTreasury) {
+      for (const item of amountsToIssue) {
+        const cur = item.currency as 'EGP' | 'USD' | 'EUR';
+        const avail = selectedTreasury.balances?.[cur] || 0;
+        if (avail < item.amount) {
+          showToast(
+            `رصيد ${cur} غير كافٍ في خزنة "${selectedTreasury.name}". المتاح: ${avail.toLocaleString()} ${cur}، المطلوب: ${item.amount.toLocaleString()} ${cur}`,
+            'error'
+          );
+          return;
+        }
+      }
     }
 
     try {
@@ -200,26 +263,28 @@ export default function CustodyPage() {
         },
         body: JSON.stringify({
           employeeId: issueEmployeeId,
-          amount: parseFloat(issueAmount),
-          currency: issueCurrency,
+          treasuryId: issueTreasuryId,
+          amounts: amountsToIssue,
           notes: issueNotes || undefined,
         }),
       });
 
       if (res.ok) {
-        showToast('تم صرف العهدة وتسجيل حركة السحب بالخزينة بنجاح', 'success');
+        showToast('تم صرف العهدة وتسجيل سحب المبالغ من الخزنة بنجاح', 'success');
         setIsIssueOpen(false);
         setIssueEmployeeId('');
-        setIssueAmount('');
+        setIssueEgpAmount('');
+        setIssueUsdAmount('');
+        setIssueEurAmount('');
         setIssueNotes('');
         loadData();
       } else {
-        const err = await res.json();
-        showToast(err.error || 'فشل صرف العهدة', 'error');
+        const errorMsg = await parseResponseError(res, 'فشل صرف العهدة');
+        showToast(errorMsg, 'error');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      showToast('خطأ بالخادم', 'error');
+      showToast(err.message || 'خطأ بالخادم أثناء صرف العهدة', 'error');
     }
   };
 
@@ -259,12 +324,12 @@ export default function CustodyPage() {
         setExpenseShipmentId('');
         loadData();
       } else {
-        const err = await res.json();
-        showToast(err.error || 'فشل تسجيل المصروف', 'error');
+        const errorMsg = await parseResponseError(res, 'فشل تسجيل المصروف');
+        showToast(errorMsg, 'error');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      showToast('خطأ بالخادم', 'error');
+      showToast(err.message || 'خطأ بالخادم أثناء تسجيل المصروف', 'error');
     }
   };
 
@@ -292,12 +357,12 @@ export default function CustodyPage() {
         setExpenseTypesList((prev) => [...prev, created]);
         setExpenseType(created.name);
       } else {
-        const err = await res.json();
-        showToast(err.error || 'فشل إضافة نوع المصروف', 'error');
+        const errorMsg = await parseResponseError(res, 'فشل إضافة نوع المصروف');
+        showToast(errorMsg, 'error');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      showToast('خطأ بالخادم', 'error');
+      showToast(err.message || 'خطأ بالخادم أثناء إضافة نوع المصروف', 'error');
     }
   };
 
@@ -323,12 +388,12 @@ export default function CustodyPage() {
         showToast('تم إدراج بند تصفية العهدة مؤقتاً وسيعود الرصيد لـ 0.00', 'success');
         loadData();
       } else {
-        const err = await res.json();
-        showToast(err.error || 'فشل إضافة بند التصفية', 'error');
+        const errorMsg = await parseResponseError(res, 'فشل إضافة بند التصفية');
+        showToast(errorMsg, 'error');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      showToast('خطأ بالخادم', 'error');
+      showToast(err.message || 'خطأ بالخادم أثناء إضافة بند التصفية', 'error');
     }
   };
 
@@ -349,12 +414,12 @@ export default function CustodyPage() {
         showToast('تم إلغاء التصفية وعودة الرصيد وإتاحة تسجيل المصروفات مجدداً', 'success');
         loadData();
       } else {
-        const err = await res.json();
-        showToast(err.error || 'فشل إلغاء التصفية', 'error');
+        const errorMsg = await parseResponseError(res, 'فشل إلغاء التصفية');
+        showToast(errorMsg, 'error');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      showToast('خطأ بالخادم', 'error');
+      showToast(err.message || 'خطأ بالخادم أثناء إلغاء التصفية', 'error');
     }
   };
 
@@ -377,12 +442,12 @@ export default function CustodyPage() {
         showToast('تم إقفال العهدة وتوريد المتبقي فعلياً للخزينة وتسجيل حركة الإيداع بنجاح', 'success');
         loadData();
       } else {
-        const err = await res.json();
-        showToast(err.error || 'فشل إقفال العهدة', 'error');
+        const errorMsg = await parseResponseError(res, 'فشل إقفال العهدة');
+        showToast(errorMsg, 'error');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      showToast('خطأ بالخادم', 'error');
+      showToast(err.message || 'خطأ بالخادم أثناء إقفال العهدة', 'error');
     }
   };
 
@@ -426,7 +491,8 @@ export default function CustodyPage() {
   const canManageTypes = hasPermission('settings.manage') || dbUser?.role === 'admin';
 
   return (
-    <SidebarLayout>
+    <PermissionGuard requiredPermission={["custody.view", "custody.create"]} pageTitle="عهد الموظفين وتصفيتها">
+      <SidebarLayout>
       <div className="space-y-6" dir="rtl">
         {/* Header bar */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -625,7 +691,7 @@ export default function CustodyPage() {
                         <User className="h-5 w-5" />
                       </div>
                       <div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <h3 className="font-bold text-base text-slate-900">{formatEmpName(custody.employee)}</h3>
                           <span
                             className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
@@ -635,6 +701,10 @@ export default function CustodyPage() {
                             }`}
                           >
                             {custody.status === 'open' ? 'نشطة (قيد التصفية)' : 'مغلقة ومورّدة للخزينة'}
+                          </span>
+                          <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 flex items-center gap-1">
+                            <Wallet className="h-3 w-3" />
+                            {custody.treasury?.name || 'الخزنة الرئيسية'}
                           </span>
                         </div>
                         <p className="text-xs text-slate-500 mt-0.5">تاريخ الصرف: {formattedDate}</p>
@@ -813,11 +883,14 @@ export default function CustodyPage() {
         {/* Modal 1: Issue New Custody */}
         {isIssueOpen && (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-white rounded-3xl max-w-md w-full p-6 md:p-8 border border-slate-100 shadow-2xl">
+            <div className="bg-white rounded-3xl max-w-lg w-full p-6 md:p-8 border border-slate-100 shadow-2xl">
               <div className="flex items-center justify-between border-b border-slate-100 pb-4">
                 <div className="flex items-center gap-2">
                   <Wallet className="h-6 w-6 text-indigo-600" />
-                  <h3 className="text-lg font-bold text-slate-900">صرف عهدة جديدة لموظف</h3>
+                  <div>
+                    <h3 className="text-lg font-bold text-slate-900">صرف عهدة جديدة لموظف</h3>
+                    <p className="text-xs text-slate-500">خصم المبالغ مباشرة من الخزنة المحددة بدون سعر صرف</p>
+                  </div>
                 </div>
                 <button onClick={() => setIsIssueOpen(false)} className="p-1 text-slate-400 hover:bg-slate-100 rounded-lg">
                   <X className="h-6 w-6" />
@@ -825,6 +898,7 @@ export default function CustodyPage() {
               </div>
 
               <form onSubmit={handleIssueCustody} className="space-y-4 mt-4">
+                {/* 1. Employee Selection */}
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold text-slate-700">الموظف المستلم (الاسم_البصمة) *</label>
                   <select
@@ -840,31 +914,112 @@ export default function CustodyPage() {
                   </select>
                 </div>
 
-                <div className="grid grid-cols-3 gap-3">
-                  <div className="col-span-2 space-y-1.5">
-                    <label className="text-xs font-bold text-slate-700">مبلغ العهدة (خصماً من الخزينة) *</label>
-                    <input
-                      type="number"
-                      required
-                      step="0.01"
-                      placeholder="المبلغ"
-                      value={issueAmount}
-                      onChange={(e) => setIssueAmount(e.target.value)}
-                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-left focus:outline-none"
-                      dir="ltr"
-                    />
+                {/* 2. Treasury Selection */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-700">الخزنة المراد الصرف منها *</label>
+                  <select
+                    required
+                    value={issueTreasuryId}
+                    onChange={(e) => setIssueTreasuryId(e.target.value)}
+                    className="w-full px-4 py-2.5 bg-indigo-50/50 border border-indigo-200 rounded-xl text-sm focus:outline-none font-bold text-indigo-950"
+                  >
+                    <option value="">-- اختر الخزنة --</option>
+                    {treasuries.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name} {t.isMain ? '(الخزنة الرئيسية)' : ''} ({t.type === 'bank' ? 'حساب بنكي' : 'خزنة كاش'})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Selected Treasury Balances Preview */}
+                {selectedTreasury && (
+                  <div className="bg-slate-900 text-white p-3.5 rounded-2xl space-y-1">
+                    <div className="flex items-center justify-between text-[11px] text-slate-300 font-medium">
+                      <span>الرصيد المتاح حالياً بالخزنة ({selectedTreasury.name}):</span>
+                      {selectedTreasury.isMain && <span className="bg-indigo-500/30 text-indigo-200 px-2 py-0.5 rounded-md text-[10px]">الرئيسية</span>}
+                    </div>
+                    <div className="flex items-center justify-around gap-2 text-xs font-black pt-1">
+                      <span className="bg-slate-800 px-3 py-1 rounded-xl text-emerald-400 border border-slate-700">
+                        {selectedTreasury.balances?.EGP?.toLocaleString() || 0} EGP
+                      </span>
+                      <span className="bg-slate-800 px-3 py-1 rounded-xl text-amber-400 border border-slate-700">
+                        {selectedTreasury.balances?.USD?.toLocaleString() || 0} USD
+                      </span>
+                      <span className="bg-slate-800 px-3 py-1 rounded-xl text-blue-400 border border-slate-700">
+                        {selectedTreasury.balances?.EUR?.toLocaleString() || 0} EUR
+                      </span>
+                    </div>
                   </div>
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-slate-700">العملة</label>
-                    <select
-                      value={issueCurrency}
-                      onChange={(e) => setIssueCurrency(e.target.value)}
-                      className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold focus:outline-none"
-                    >
-                      <option value="EGP">EGP</option>
-                      <option value="USD">USD</option>
-                      <option value="EUR">EUR</option>
-                    </select>
+                )}
+
+                {/* Multi-Currency Amounts Inputs */}
+                <div className="space-y-2 border-t border-b border-slate-100 py-3">
+                  <label className="text-xs font-bold text-slate-800 block">
+                    مبالغ العهدة حسب العملات (يمكن إدخال عملة واحدة أو أكثر في نفس العهدة) *
+                  </label>
+
+                  {/* EGP Input */}
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="w-16 text-xs font-bold text-slate-600 text-left" dir="ltr">EGP</span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        placeholder="المبلغ بالجنيه المصري EGP"
+                        value={issueEgpAmount}
+                        onChange={(e) => setIssueEgpAmount(e.target.value)}
+                        className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-left focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                        dir="ltr"
+                      />
+                    </div>
+                    {selectedTreasury && issueEgpAmount && parseFloat(issueEgpAmount) > (selectedTreasury.balances?.EGP || 0) && (
+                      <p className="text-[11px] text-rose-600 font-bold pr-18">
+                        ⚠️ رصيد الجنيه غير كافٍ! (المتاح: {selectedTreasury.balances?.EGP?.toLocaleString()} EGP)
+                      </p>
+                    )}
+                  </div>
+
+                  {/* USD Input */}
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="w-16 text-xs font-bold text-slate-600 text-left" dir="ltr">USD</span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        placeholder="المبلغ بالدولار USD"
+                        value={issueUsdAmount}
+                        onChange={(e) => setIssueUsdAmount(e.target.value)}
+                        className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-left focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                        dir="ltr"
+                      />
+                    </div>
+                    {selectedTreasury && issueUsdAmount && parseFloat(issueUsdAmount) > (selectedTreasury.balances?.USD || 0) && (
+                      <p className="text-[11px] text-rose-600 font-bold pr-18">
+                        ⚠️ رصيد الدولار غير كافٍ! (المتاح: {selectedTreasury.balances?.USD?.toLocaleString()} USD)
+                      </p>
+                    )}
+                  </div>
+
+                  {/* EUR Input */}
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="w-16 text-xs font-bold text-slate-600 text-left" dir="ltr">EUR</span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        placeholder="المبلغ باليورو EUR"
+                        value={issueEurAmount}
+                        onChange={(e) => setIssueEurAmount(e.target.value)}
+                        className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-left focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                        dir="ltr"
+                      />
+                    </div>
+                    {selectedTreasury && issueEurAmount && parseFloat(issueEurAmount) > (selectedTreasury.balances?.EUR || 0) && (
+                      <p className="text-[11px] text-rose-600 font-bold pr-18">
+                        ⚠️ رصيد اليورو غير كافٍ! (المتاح: {selectedTreasury.balances?.EUR?.toLocaleString()} EUR)
+                      </p>
+                    )}
                   </div>
                 </div>
 
@@ -875,7 +1030,7 @@ export default function CustodyPage() {
                     placeholder="سبب أو غرض صرف العهدة..."
                     value={issueNotes}
                     onChange={(e) => setIssueNotes(e.target.value)}
-                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none"
+                    className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none"
                   />
                 </div>
 
@@ -891,7 +1046,7 @@ export default function CustodyPage() {
                     type="submit"
                     className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-lg"
                   >
-                    تأكيد الصرف من الخزينة
+                    تأكيد الصرف من الخزنة
                   </button>
                 </div>
               </form>
@@ -1165,5 +1320,6 @@ export default function CustodyPage() {
         )}
       </div>
     </SidebarLayout>
+    </PermissionGuard>
   );
 }
