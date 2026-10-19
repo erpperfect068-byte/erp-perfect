@@ -41,8 +41,10 @@ export const PERMISSION_LABELS: Record<string, string> = {
   'treasury.view': 'عرض أرصدة وحركات الخزينة',
   'treasury.create': 'تسجيل سندات إيداع أو سحب مباشر',
   'treasury.manage_safes': 'إضافة وإدارة الخزن والحسابات البنكية',
+  'treasury.edit': 'تعديل بيانات الخزنة والحساب البنكي',
+  'treasury.delete': 'حذف الخزنة (بشرط تصفية الرصيد)',
+  'treasury.adjust': 'تسوية رصيد الخزنة (عجز / زيادة)',
   'treasury.transfer': 'إجراء تحويلات مالية بين الخزن وسعر الصرف',
-  'treasury.delete': 'حذف حركة خزينة',
   'treasury.reverse': 'عكس وإلغاء حركات الخزينة',
 
   // custody
@@ -113,6 +115,9 @@ export const SYSTEM_PERMISSIONS: PermissionDefinition[] = [
   { code: 'treasury.view', module: 'treasury', moduleLabelAr: 'الخزينة والمعاملات المالية', labelAr: 'عرض أرصدة وحركات الخزينة' },
   { code: 'treasury.create', module: 'treasury', moduleLabelAr: 'الخزينة والمعاملات المالية', labelAr: 'تسجيل سندات إيداع أو سحب مباشر' },
   { code: 'treasury.manage_safes', module: 'treasury', moduleLabelAr: 'الخزينة والمعاملات المالية', labelAr: 'إضافة وإدارة الخزن والحسابات البنكية' },
+  { code: 'treasury.edit', module: 'treasury', moduleLabelAr: 'الخزينة والمعاملات المالية', labelAr: 'تعديل بيانات الخزنة والحساب البنكي' },
+  { code: 'treasury.delete', module: 'treasury', moduleLabelAr: 'الخزينة والمعاملات المالية', labelAr: 'حذف الخزنة (بشرط تصفية الرصيد)' },
+  { code: 'treasury.adjust', module: 'treasury', moduleLabelAr: 'الخزينة والمعاملات المالية', labelAr: 'تسوية رصيد الخزنة (عجز / زيادة)' },
   { code: 'treasury.transfer', module: 'treasury', moduleLabelAr: 'الخزينة والمعاملات المالية', labelAr: 'إجراء تحويلات مالية بين الخزن وسعر الصرف' },
   { code: 'treasury.reverse', module: 'treasury', moduleLabelAr: 'الخزينة والمعاملات المالية', labelAr: 'عكس وإلغاء حركات الخزينة' },
 

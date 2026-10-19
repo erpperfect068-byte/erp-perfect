@@ -5,6 +5,7 @@ import SidebarLayout from '../../components/SidebarLayout';
 import PermissionGuard from '../../components/PermissionGuard';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../components/Toast';
+import { LoadingButton } from '../../components/LoadingButton';
 import { motion } from 'motion/react';
 import {
   Users,
@@ -58,6 +59,7 @@ export default function ClientsPage() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // New Client Form States
   const [name, setName] = useState('');
@@ -140,6 +142,7 @@ export default function ClientsPage() {
       return;
     }
 
+    setIsSubmitting(true);
     try {
       const token = await getAuthToken();
       const res = await fetch('/api/clients', {
@@ -183,6 +186,8 @@ export default function ClientsPage() {
     } catch (err) {
       console.error(err);
       showToast('خطأ بالخادم أثناء التسجيل', 'error');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -559,12 +564,14 @@ export default function ClientsPage() {
                   >
                     إلغاء
                   </button>
-                  <button
+                  <LoadingButton
                     type="submit"
+                    isLoading={isSubmitting}
+                    loadingText="جاري حفظ وتسجيل العميل..."
                     className="px-6 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold shadow-lg shadow-indigo-600/10"
                   >
                     حفظ وتسجيل
-                  </button>
+                  </LoadingButton>
                 </div>
               </form>
             </div>

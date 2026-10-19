@@ -5,6 +5,7 @@ import SidebarLayout from '../../components/SidebarLayout';
 import PermissionGuard from '../../components/PermissionGuard';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../components/Toast';
+import { LoadingButton } from '../../components/LoadingButton';
 import Link from 'next/link';
 import {
   Ship,
@@ -118,6 +119,10 @@ export default function ShipmentsPage() {
   const [updateContractorId, setUpdateContractorId] = useState('');
   const [updateNotes, setUpdateNotes] = useState('');
 
+  // Submit loading states
+  const [isSubmittingCreate, setIsSubmittingCreate] = useState(false);
+  const [isSubmittingStatus, setIsSubmittingStatus] = useState(false);
+
   async function loadCoreData() {
     try {
       const token = await getAuthToken();
@@ -174,6 +179,7 @@ export default function ShipmentsPage() {
       return;
     }
 
+    setIsSubmittingCreate(true);
     try {
       const token = await getAuthToken();
       const res = await fetch('/api/shipments', {
@@ -227,6 +233,8 @@ export default function ShipmentsPage() {
     } catch (err: any) {
       console.error(err);
       showToast(err.message || 'خطأ بالشبكة أو الخادم', 'error');
+    } finally {
+      setIsSubmittingCreate(false);
     }
   };
 
@@ -234,6 +242,7 @@ export default function ShipmentsPage() {
     e.preventDefault();
     if (!selectedShipment) return;
 
+    setIsSubmittingStatus(true);
     try {
       const token = await getAuthToken();
       const res = await fetch('/api/shipments', {
@@ -263,6 +272,8 @@ export default function ShipmentsPage() {
     } catch (err: any) {
       console.error(err);
       showToast(err.message || 'خطأ بالخادم', 'error');
+    } finally {
+      setIsSubmittingStatus(false);
     }
   };
 
@@ -733,12 +744,14 @@ export default function ShipmentsPage() {
                   >
                     إلغاء
                   </button>
-                  <button
+                  <LoadingButton
                     type="submit"
+                    isLoading={isSubmittingCreate}
+                    loadingText="جاري فتح ملف الشحنة..."
                     className="px-6 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold shadow-lg"
                   >
                     فتح ملف الشحنة جمركياً
-                  </button>
+                  </LoadingButton>
                 </div>
               </form>
             </div>
@@ -821,12 +834,14 @@ export default function ShipmentsPage() {
                   >
                     إلغاء
                   </button>
-                  <button
+                  <LoadingButton
                     type="submit"
+                    isLoading={isSubmittingStatus}
+                    loadingText="جاري تحديث الملف..."
                     className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-lg"
                   >
                     تحديث الملف واللوحة
-                  </button>
+                  </LoadingButton>
                 </div>
               </form>
             </div>

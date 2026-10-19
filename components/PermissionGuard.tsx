@@ -6,20 +6,47 @@ import { useAuth } from "../context/AuthContext";
 import { ShieldAlert, Home } from "lucide-react";
 import SidebarLayout from "./SidebarLayout";
 
-interface PermissionGuardProps {
-  requiredPermission: string | string[];
+export interface PermissionGuardProps {
+  /**
+   * Required permission code(s). Can also use `permission` prop.
+   */
+  requiredPermission?: string | string[];
+  /**
+   * Alias for requiredPermission to match common naming.
+   */
+  permission?: string | string[];
   children: React.ReactNode;
+  /**
+   * Title of page for full-page unauthorized screens.
+   * If omitted, component acts as an inline guard and returns fallback (or null).
+   */
   pageTitle?: string;
+  /**
+   * Optional custom fallback component when permission is missing (defaults to null for inline guards).
+   */
+  fallback?: React.ReactNode;
+  /**
+   * If true, suppresses full-page error and behaves as an inline UI element guard.
+   */
+  inline?: boolean;
 }
 
 export default function PermissionGuard({
   requiredPermission,
+  permission,
   children,
-  pageTitle = "الصفحة المطلوبة",
+  pageTitle,
+  fallback = null,
+  inline = false,
 }: PermissionGuardProps) {
   const { dbUser, hasPermission, loading } = useAuth();
 
+  const perms = requiredPermission || permission;
+
   if (loading) {
+    if (inline || !pageTitle) {
+      return null;
+    }
     return (
       <SidebarLayout>
         <div className="p-8 space-y-4 max-w-4xl mx-auto">
@@ -37,13 +64,21 @@ export default function PermissionGuard({
   let hasAccess = false;
   if (isAdmin) {
     hasAccess = true;
-  } else if (Array.isArray(requiredPermission)) {
-    hasAccess = requiredPermission.some((perm) => hasPermission(perm));
+  } else if (!perms) {
+    hasAccess = true;
+  } else if (Array.isArray(perms)) {
+    hasAccess = perms.some((p) => hasPermission(p));
   } else {
-    hasAccess = hasPermission(requiredPermission);
+    hasAccess = hasPermission(perms);
   }
 
   if (!hasAccess) {
+    // If used as an inline component (e.g. wrapping a button) or without pageTitle, render fallback (null)
+    if (inline || !pageTitle) {
+      return <>{fallback}</>;
+    }
+
+    // Full-page guard fallback
     return (
       <SidebarLayout>
         <div className="min-h-[70vh] flex items-center justify-center p-4">

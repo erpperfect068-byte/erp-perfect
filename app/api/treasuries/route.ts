@@ -50,12 +50,12 @@ export async function GET(req: NextRequest) {
         balancesByTreasury[tid] = { EGP: 0, USD: 0, EUR: 0 };
       }
 
-      if (['deposit', 'transfer_in'].includes(type)) {
+      if (['deposit', 'transfer_in', 'adjustment_in', 'adjustment_add'].includes(type)) {
         balancesByTreasury[tid][cur] = (balancesByTreasury[tid][cur] || 0) + amt;
         if (cur in overallBalances) {
           overallBalances[cur] += amt;
         }
-      } else if (['withdraw', 'transfer_out'].includes(type)) {
+      } else if (['withdraw', 'transfer_out', 'adjustment_out', 'adjustment_deduct'].includes(type)) {
         balancesByTreasury[tid][cur] = (balancesByTreasury[tid][cur] || 0) - amt;
         if (cur in overallBalances) {
           overallBalances[cur] -= amt;

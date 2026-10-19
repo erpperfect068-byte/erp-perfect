@@ -5,6 +5,7 @@ import SidebarLayout from '../../components/SidebarLayout';
 import PermissionGuard from '../../components/PermissionGuard';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../components/Toast';
+import { LoadingButton } from '../../components/LoadingButton';
 import {
   Wallet,
   Plus,
@@ -24,7 +25,8 @@ import {
   RotateCcw,
   Trash2,
   Tag,
-  Fingerprint
+  Fingerprint,
+  Undo2
 } from 'lucide-react';
 
 interface Employee {
@@ -111,6 +113,18 @@ export default function CustodyPage() {
   const [isExpenseOpen, setIsExpenseOpen] = useState(false);
   const [isAddTypeOpen, setIsAddTypeOpen] = useState(false);
   const [selectedCustody, setSelectedCustody] = useState<Custody | null>(null);
+
+  // Reverse Expense Modal States
+  const [isReverseModalOpen, setIsReverseModalOpen] = useState(false);
+  const [reversingExpense, setReversingExpense] = useState<CustodyExpense | null>(null);
+  const [reverseRefundAmount, setReverseRefundAmount] = useState('');
+  const [reverseReason, setReverseReason] = useState('');
+
+  // Submit loading states
+  const [isSubmittingIssue, setIsSubmittingIssue] = useState(false);
+  const [isSubmittingExpense, setIsSubmittingExpense] = useState(false);
+  const [isSubmittingType, setIsSubmittingType] = useState(false);
+  const [isSubmittingReverse, setIsSubmittingReverse] = useState(false);
 
   // Issue Custody Form (Multi-Currency & Treasury selection)
   const [issueEmployeeId, setIssueEmployeeId] = useState('');
@@ -253,6 +267,7 @@ export default function CustodyPage() {
       }
     }
 
+    setIsSubmittingIssue(true);
     try {
       const token = await getAuthToken();
       const res = await fetch('/api/custody', {
@@ -285,6 +300,8 @@ export default function CustodyPage() {
     } catch (err: any) {
       console.error(err);
       showToast(err.message || 'خطأ بالخادم أثناء صرف العهدة', 'error');
+    } finally {
+      setIsSubmittingIssue(false);
     }
   };
 
@@ -296,6 +313,7 @@ export default function CustodyPage() {
       return;
     }
 
+    setIsSubmittingExpense(true);
     try {
       const token = await getAuthToken();
       const res = await fetch('/api/custody/expense', {
@@ -330,6 +348,8 @@ export default function CustodyPage() {
     } catch (err: any) {
       console.error(err);
       showToast(err.message || 'خطأ بالخادم أثناء تسجيل المصروف', 'error');
+    } finally {
+      setIsSubmittingExpense(false);
     }
   };
 
@@ -338,6 +358,7 @@ export default function CustodyPage() {
     e.preventDefault();
     if (!newTypeName || !newTypeName.trim()) return;
 
+    setIsSubmittingType(true);
     try {
       const token = await getAuthToken();
       const res = await fetch('/api/expense-types', {
@@ -363,6 +384,8 @@ export default function CustodyPage() {
     } catch (err: any) {
       console.error(err);
       showToast(err.message || 'خطأ بالخادم أثناء إضافة نوع المصروف', 'error');
+    } finally {
+      setIsSubmittingType(false);
     }
   };
 
@@ -448,6 +471,69 @@ export default function CustodyPage() {
     } catch (err: any) {
       console.error(err);
       showToast(err.message || 'خطأ بالخادم أثناء إقفال العهدة', 'error');
+    }
+  };
+
+  // Open Reversal/Refund Modal
+  const openReverseModal = (expense: CustodyExpense) => {
+    setReversingExpense(expense);
+    setReverseRefundAmount(expense.amount.toString());
+    setReverseReason('');
+    setIsReverseModalOpen(true);
+  };
+
+  // Handle Reverse / Refund Expense Submission (Contra Entry)
+  const handleReverseExpense = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!reversingExpense) return;
+
+    const numRefund = parseFloat(reverseRefundAmount);
+    if (isNaN(numRefund) || numRefund <= 0) {
+      showToast('يرجى إدخال مبلغ استرداد صحيح أكبر من صفر', 'warning');
+      return;
+    }
+
+    if (numRefund > reversingExpense.amount) {
+      showToast('المبلغ المسترد لا يمكن أن يتجاوز قيمة المصروف الأصلي', 'warning');
+      return;
+    }
+
+    if (!reverseReason.trim()) {
+      showToast('يرجى ذكر سبب ومبرر الاسترداد المحاسبي', 'warning');
+      return;
+    }
+
+    try {
+      setIsSubmittingReverse(true);
+      const token = await getAuthToken();
+      const res = await fetch(`/api/custody/expenses/${reversingExpense.id}/reverse`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          refundAmount: numRefund,
+          reason: reverseReason.trim(),
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'فشل استرداد المصروف');
+      }
+
+      showToast(data.message || 'تم تسجيل استرداد المصروف بنجاح وعودة المبلغ لرصيد العهدة', 'success');
+      setIsReverseModalOpen(false);
+      setReversingExpense(null);
+      setReverseRefundAmount('');
+      setReverseReason('');
+      await loadData();
+    } catch (err: any) {
+      console.error(err);
+      showToast(err.message || 'حدث خطأ أثناء إجراء الاسترداد', 'error');
+    } finally {
+      setIsSubmittingReverse(false);
     }
   };
 
@@ -818,8 +904,18 @@ export default function CustodyPage() {
                         <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
                           {custody.expenses.map((exp) => {
                             const isSettlementRow = exp.expenseType === 'تسوية/استرداد متبقي';
+                            const isNegative = Number(exp.amount) < 0;
                             return (
-                              <tr key={exp.id} className={isSettlementRow ? 'bg-amber-50/60 font-bold' : 'hover:bg-slate-50/50'}>
+                              <tr
+                                key={exp.id}
+                                className={
+                                  isSettlementRow
+                                    ? 'bg-amber-50/60 font-bold'
+                                    : isNegative
+                                    ? 'bg-orange-50/40 text-orange-950 font-medium'
+                                    : 'hover:bg-slate-50/50'
+                                }
+                              >
                                 <td className="p-3 text-slate-500">
                                   {new Date(exp.expenseDate).toLocaleDateString('ar-EG')}
                                 </td>
@@ -828,6 +924,8 @@ export default function CustodyPage() {
                                     className={`px-2 py-0.5 rounded-md font-bold ${
                                       isSettlementRow
                                         ? 'bg-amber-200 text-amber-900 border border-amber-300'
+                                        : isNegative
+                                        ? 'bg-orange-100 text-orange-800 border border-orange-200'
                                         : 'bg-slate-100 text-slate-800'
                                     }`}
                                   >
@@ -850,7 +948,11 @@ export default function CustodyPage() {
                                     <span className="text-slate-400">مصروف عام/إداري</span>
                                   )}
                                 </td>
-                                <td className="p-3 text-left font-black text-slate-900">
+                                <td
+                                  className={`p-3 text-left font-black dir-ltr ${
+                                    isNegative ? 'text-emerald-600' : 'text-slate-900'
+                                  }`}
+                                >
                                   {parseFloat(exp.amount.toString()).toLocaleString()} {exp.currency}
                                 </td>
                                 <td className="p-3 text-center">
@@ -863,6 +965,22 @@ export default function CustodyPage() {
                                       <RotateCcw className="h-3.5 w-3.5" />
                                       إلغاء التصفية
                                     </button>
+                                  ) : isNegative ? (
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-bold text-orange-700 bg-orange-100 px-2 py-0.5 rounded border border-orange-200">
+                                      قيد استرداد
+                                    </span>
+                                  ) : custody.status === 'open' ? (
+                                    <PermissionGuard permission={['custody.manage', 'custody.expense', 'custody.settle', 'custody.reverse']}>
+                                      <button
+                                        type="button"
+                                        onClick={() => openReverseModal(exp)}
+                                        className="px-2.5 py-1 bg-orange-50 hover:bg-orange-100 text-orange-700 border border-orange-200 rounded-lg font-bold text-[11px] transition-colors flex items-center gap-1 mx-auto shadow-sm"
+                                        title="استرداد مبلغ من المصروف"
+                                      >
+                                        <Undo2 className="h-3.5 w-3.5 text-orange-500" />
+                                        <span>استرداد</span>
+                                      </button>
+                                    </PermissionGuard>
                                   ) : (
                                     <span className="text-slate-300">-</span>
                                   )}
@@ -1042,12 +1160,14 @@ export default function CustodyPage() {
                   >
                     إلغاء
                   </button>
-                  <button
+                  <LoadingButton
                     type="submit"
+                    isLoading={isSubmittingIssue}
+                    loadingText="جاري تأكيد الصرف..."
                     className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-lg"
                   >
                     تأكيد الصرف من الخزنة
-                  </button>
+                  </LoadingButton>
                 </div>
               </form>
             </div>
@@ -1172,12 +1292,14 @@ export default function CustodyPage() {
                   >
                     إلغاء
                   </button>
-                  <button
+                  <LoadingButton
                     type="submit"
+                    isLoading={isSubmittingExpense}
+                    loadingText="جاري تسجيل المصروف..."
                     className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-lg"
                   >
                     تسجيل المصروف
-                  </button>
+                  </LoadingButton>
                 </div>
               </form>
             </div>
@@ -1219,12 +1341,14 @@ export default function CustodyPage() {
                   >
                     إلغاء
                   </button>
-                  <button
+                  <LoadingButton
                     type="submit"
+                    isLoading={isSubmittingType}
+                    loadingText="جاري الحفظ..."
                     className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow"
                   >
                     حفظ التصنيف
-                  </button>
+                  </LoadingButton>
                 </div>
               </form>
             </div>
@@ -1315,6 +1439,148 @@ export default function CustodyPage() {
                   </div>
                 </div>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Modal 5: Reverse / Refund Expense Modal */}
+        {isReverseModalOpen && reversingExpense && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-3xl max-w-lg w-full p-6 md:p-8 border border-slate-100 shadow-2xl relative">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-2xl bg-orange-100 text-orange-600 flex items-center justify-center">
+                    <Undo2 className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900">استرداد / عكس مصروف من العهدة</h3>
+                    <p className="text-xs text-slate-500 mt-0.5">تسجيل قيد عكسي لإعادة المبلغ المسترد لرصيد العهدة</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsReverseModalOpen(false);
+                    setReversingExpense(null);
+                  }}
+                  className="p-1 text-slate-400 hover:bg-slate-100 rounded-lg transition-colors"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              {/* Read-Only Details Card */}
+              <div className="mt-4 p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-2 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500 font-medium">نوع المصروف:</span>
+                  <span className="font-bold text-slate-900 bg-white px-2 py-0.5 rounded border border-slate-200">
+                    {reversingExpense.expenseType}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500 font-medium">المبلغ الأصلي المسجل:</span>
+                  <span className="font-black text-slate-900 text-sm dir-ltr">
+                    {parseFloat(reversingExpense.amount.toString()).toLocaleString()} {reversingExpense.currency}
+                  </span>
+                </div>
+                {reversingExpense.receiptNumber && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-500 font-medium">رقم الإيصال:</span>
+                    <span className="font-mono font-bold text-slate-700">{reversingExpense.receiptNumber}</span>
+                  </div>
+                )}
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500 font-medium">البيان والتفاصيل:</span>
+                  <span className="font-semibold text-slate-800 truncate max-w-[220px]">
+                    {reversingExpense.description}
+                  </span>
+                </div>
+              </div>
+
+              <form onSubmit={handleReverseExpense} className="space-y-4 mt-5">
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-xs font-bold text-slate-700">
+                      مبلغ الاسترداد المطلوب ({reversingExpense.currency}) *
+                    </label>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setReverseRefundAmount(reversingExpense.amount.toString())}
+                        className="text-[11px] font-bold text-orange-600 bg-orange-50 hover:bg-orange-100 px-2 py-0.5 rounded transition-colors"
+                      >
+                        كامل المبلغ (100%)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setReverseRefundAmount((reversingExpense.amount / 2).toFixed(2))
+                        }
+                        className="text-[11px] font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 px-2 py-0.5 rounded transition-colors"
+                      >
+                        نصف المبلغ (50%)
+                      </button>
+                    </div>
+                  </div>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    max={reversingExpense.amount}
+                    value={reverseRefundAmount}
+                    onChange={(e) => setReverseRefundAmount(e.target.value)}
+                    required
+                    placeholder="0.00"
+                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-black focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 dir-ltr text-right"
+                  />
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    أقصى مبلغ متاح للاسترداد: {parseFloat(reversingExpense.amount.toString()).toLocaleString()}{' '}
+                    {reversingExpense.currency}
+                  </p>
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1.5">
+                    سبب ومبرر الاسترداد المحاسبي *
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={reverseReason}
+                    onChange={(e) => setReverseReason(e.target.value)}
+                    required
+                    placeholder="مثال: تم إرجاع جزء من الشراء واسترداد المبلغ نقدياً، أو تصحيح فارق حسابي..."
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500"
+                  />
+                </div>
+
+                <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-xl text-[11px] text-amber-900 flex items-start gap-2">
+                  <AlertCircle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+                  <span>
+                    سيتم تسجيل قيد عكسي سالب بقيمة المبلغ المسترد، مما يعيد هذه القيمة إلى رصيد العهدة المتاح للموظف بشكل فوري.
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsReverseModalOpen(false);
+                      setReversingExpense(null);
+                    }}
+                    className="px-4 py-2.5 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 transition-colors"
+                  >
+                    إلغاء
+                  </button>
+                  <LoadingButton
+                    type="submit"
+                    isLoading={isSubmittingReverse}
+                    className="px-5 py-2.5 bg-orange-600 hover:bg-orange-700 active:bg-orange-800 text-white rounded-xl text-xs font-bold shadow-lg shadow-orange-600/20 transition-colors flex items-center gap-1.5"
+                  >
+                    <Undo2 className="h-4 w-4" />
+                    تأكيد قيد الاسترداد
+                  </LoadingButton>
+                </div>
+              </form>
             </div>
           </div>
         )}

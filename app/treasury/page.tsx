@@ -5,6 +5,7 @@ import SidebarLayout from "../../components/SidebarLayout";
 import PermissionGuard from "../../components/PermissionGuard";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../components/Toast";
+import { LoadingButton } from "../../components/LoadingButton";
 import { motion } from "motion/react";
 import {
   Wallet,
@@ -28,6 +29,10 @@ import {
   Vault,
   Layers,
   ArrowLeftRight,
+  Pencil,
+  Scale,
+  SlidersHorizontal,
+  AlertCircle,
 } from "lucide-react";
 
 interface Treasury {
@@ -50,7 +55,7 @@ interface TreasuryTransaction {
   treasuryId: string;
   relatedTreasuryId: string | null;
   transferGroupId: string | null;
-  transactionType: "deposit" | "withdraw" | "transfer_out" | "transfer_in" | "reversal";
+  transactionType: "deposit" | "withdraw" | "transfer_out" | "transfer_in" | "reversal" | "adjustment_in" | "adjustment_out";
   amount: string;
   currency: string;
   exchangeRateAtTransaction: string;
@@ -110,6 +115,31 @@ export default function TreasuryPage() {
   const [transferRefNo, setTransferRefNo] = useState("");
   const [transferNotes, setTransferNotes] = useState("");
   const [submittingTransfer, setSubmittingTransfer] = useState(false);
+  const [submittingTreasury, setSubmittingTreasury] = useState(false);
+  const [submittingDirectTx, setSubmittingDirectTx] = useState(false);
+
+  // Edit Treasury Form States
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editingTreasury, setEditingTreasury] = useState<Treasury | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editCode, setEditCode] = useState("");
+  const [editType, setEditType] = useState<"cash" | "bank">("cash");
+  const [editNotes, setEditNotes] = useState("");
+  const [submittingEdit, setSubmittingEdit] = useState(false);
+
+  // Delete Treasury States
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [deletingTreasury, setDeletingTreasury] = useState<Treasury | null>(null);
+  const [submittingDelete, setSubmittingDelete] = useState(false);
+
+  // Adjust Balance States
+  const [isAdjustModalOpen, setIsAdjustModalOpen] = useState(false);
+  const [adjustingTreasury, setAdjustingTreasury] = useState<Treasury | null>(null);
+  const [adjustAmount, setAdjustAmount] = useState("");
+  const [adjustType, setAdjustType] = useState<"deposit" | "withdrawal">("deposit");
+  const [adjustCurrency, setAdjustCurrency] = useState<"EGP" | "USD" | "EUR">("EGP");
+  const [adjustReason, setAdjustReason] = useState("");
+  const [submittingAdjust, setSubmittingAdjust] = useState(false);
 
   async function loadData() {
     try {
@@ -188,6 +218,7 @@ export default function TreasuryPage() {
       return;
     }
 
+    setSubmittingTreasury(true);
     try {
       const token = await getAuthToken();
       const res = await fetch("/api/treasuries", {
@@ -217,6 +248,8 @@ export default function TreasuryPage() {
       }
     } catch (err: any) {
       showToast(err.message || "خطأ في إنشاء الخزنة", "error");
+    } finally {
+      setSubmittingTreasury(false);
     }
   };
 
@@ -228,6 +261,7 @@ export default function TreasuryPage() {
       return;
     }
 
+    setSubmittingDirectTx(true);
     try {
       const token = await getAuthToken();
       const res = await fetch("/api/treasury", {
@@ -260,6 +294,8 @@ export default function TreasuryPage() {
       }
     } catch (err: any) {
       showToast(err.message || "خطأ عند معالجة القيد", "error");
+    } finally {
+      setSubmittingDirectTx(false);
     }
   };
 
@@ -317,6 +353,159 @@ export default function TreasuryPage() {
       showToast(err.message || "خطأ في إجراء التحويل", "error");
     } finally {
       setSubmittingTransfer(false);
+    }
+  };
+
+  // Open Edit Treasury Modal
+  const openEditModal = (t: Treasury) => {
+    setEditingTreasury(t);
+    setEditName(t.name);
+    setEditCode(t.code || "");
+    setEditType(t.type);
+    setEditNotes(t.notes || "");
+    setIsEditModalOpen(true);
+  };
+
+  // Handle Edit Treasury Metadata Submit (Financial Rule 1: NO direct balance editing)
+  const handleEditTreasury = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingTreasury) return;
+    if (!editName.trim()) {
+      showToast("اسم الخزنة مطلوب", "warning");
+      return;
+    }
+
+    setSubmittingEdit(true);
+    try {
+      const token = await getAuthToken();
+      const res = await fetch(`/api/treasury/${editingTreasury.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          name: editName.trim(),
+          code: editCode.trim() || null,
+          type: editType,
+          notes: editNotes.trim() || null,
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        showToast(data.message || "تم تحديث بيانات الخزنة بنجاح", "success");
+        setIsEditModalOpen(false);
+        setEditingTreasury(null);
+        loadData();
+      } else {
+        showToast(data.error || "فشل تحديث الخزنة", "error");
+      }
+    } catch (err: any) {
+      showToast(err.message || "خطأ أثناء تحديث بيانات الخزنة", "error");
+    } finally {
+      setSubmittingEdit(false);
+    }
+  };
+
+  // Open Delete Confirmation Modal
+  const openDeleteModal = (t: Treasury) => {
+    setDeletingTreasury(t);
+    setIsDeleteModalOpen(true);
+  };
+
+  // Handle Delete Treasury (Financial Rule 2: Cannot delete if balance != 0)
+  const handleDeleteTreasury = async () => {
+    if (!deletingTreasury) return;
+
+    setSubmittingDelete(true);
+    try {
+      const token = await getAuthToken();
+      const res = await fetch(`/api/treasury/${deletingTreasury.id}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        showToast(data.message || "تم حذف الخزنة بنجاح", "success");
+        if (selectedTreasuryId === deletingTreasury.id) {
+          setSelectedTreasuryId("all");
+        }
+        setIsDeleteModalOpen(false);
+        setDeletingTreasury(null);
+        loadData();
+      } else {
+        // Displays clear message if non-zero balance
+        showToast(data.error || "لا يمكن حذف الخزنة", "error");
+      }
+    } catch (err: any) {
+      showToast(err.message || "خطأ أثناء محاولة حذف الخزنة", "error");
+    } finally {
+      setSubmittingDelete(false);
+    }
+  };
+
+  // Open Adjust Balance Modal
+  const openAdjustModal = (t: Treasury) => {
+    setAdjustingTreasury(t);
+    setAdjustAmount("");
+    setAdjustType("deposit");
+    setAdjustCurrency("EGP");
+    setAdjustReason("");
+    setIsAdjustModalOpen(true);
+  };
+
+  // Handle Manual Balance Adjustment Submit (Logs as transaction & updates balance)
+  const handleAdjustTreasury = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!adjustingTreasury) return;
+
+    const num = parseFloat(adjustAmount);
+    if (isNaN(num) || num <= 0) {
+      showToast("يرجى إدخال مبلغ تسوية صحيح أكبر من 0", "warning");
+      return;
+    }
+
+    if (!adjustReason.trim()) {
+      showToast("يرجى كتابة سبب التسوية والمبرر المحاسبي", "warning");
+      return;
+    }
+
+    setSubmittingAdjust(true);
+    try {
+      const token = await getAuthToken();
+      const res = await fetch(`/api/treasury/${adjustingTreasury.id}/adjust`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          amount: num,
+          type: adjustType,
+          currency: adjustCurrency,
+          reason: adjustReason.trim(),
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        showToast(data.message || "تمت تسوية رصيد الخزنة بنجاح", "success");
+        setIsAdjustModalOpen(false);
+        setAdjustingTreasury(null);
+        setAdjustAmount("");
+        setAdjustReason("");
+        loadData();
+      } else {
+        showToast(data.error || "فشل إجراء تسوية الرصيد", "error");
+      }
+    } catch (err: any) {
+      showToast(err.message || "خطأ أثناء إجراء التسوية", "error");
+    } finally {
+      setSubmittingAdjust(false);
     }
   };
 
@@ -438,6 +627,66 @@ export default function TreasuryPage() {
           ))}
         </div>
 
+        {/* Active Treasury Specific Action Toolbar (when a single treasury is selected) */}
+        {selectedTreasuryId !== "all" && activeTreasuryObj && (
+          <div className="bg-slate-900 text-white p-4 rounded-2xl flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center font-bold">
+                <Vault className="h-5 w-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-base font-bold text-white">{activeTreasuryObj.name}</h3>
+                  {activeTreasuryObj.isMain && (
+                    <span className="bg-amber-400 text-slate-900 text-[10px] px-2 py-0.5 rounded font-black">
+                      الرئيسية
+                    </span>
+                  )}
+                  <span className="text-xs text-slate-400 font-mono">({activeTreasuryObj.code || "TR-01"})</span>
+                </div>
+                <p className="text-xs text-slate-400 mt-0.5">{activeTreasuryObj.notes || "لا توجد ملاحظات إضافية"}</p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <PermissionGuard permission="treasury.adjust">
+                <button
+                  type="button"
+                  onClick={() => openAdjustModal(activeTreasuryObj)}
+                  className="flex items-center gap-1.5 px-3.5 py-2 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 rounded-xl text-xs font-bold transition-all"
+                >
+                  <Scale className="h-4 w-4" />
+                  تسوية الرصيد
+                </button>
+              </PermissionGuard>
+
+              <PermissionGuard permission="treasury.edit">
+                <button
+                  type="button"
+                  onClick={() => openEditModal(activeTreasuryObj)}
+                  className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-bold transition-all"
+                >
+                  <Pencil className="h-4 w-4" />
+                  تعديل البيانات
+                </button>
+              </PermissionGuard>
+
+              {!activeTreasuryObj.isMain && (
+                <PermissionGuard permission="treasury.delete">
+                  <button
+                    type="button"
+                    onClick={() => openDeleteModal(activeTreasuryObj)}
+                    className="flex items-center gap-1.5 px-3.5 py-2 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 rounded-xl text-xs font-bold transition-all"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    حذف الخزنة
+                  </button>
+                </PermissionGuard>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Currency Summary Grid for Selected View */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
           <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm flex items-center justify-between">
@@ -506,11 +755,59 @@ export default function TreasuryPage() {
                         <span className="text-[10px] text-slate-400 font-mono block">{t.code || "TR-01"} • {t.type === "bank" ? "حساب بنكي" : "خزنة نقدية"}</span>
                       </div>
                     </div>
-                    {t.isMain && (
-                      <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px-2 py-0.5 rounded-full">
-                        الرئيسية
-                      </span>
-                    )}
+                    
+                    <div className="flex items-center gap-1">
+                      {t.isMain && (
+                        <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px-2 py-0.5 rounded-full ml-1">
+                          الرئيسية
+                        </span>
+                      )}
+
+                      {/* Actions Menu */}
+                      <PermissionGuard permission="treasury.adjust">
+                        <button
+                          type="button"
+                          title="تسوية رصيد الخزنة (عجز / زيادة)"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openAdjustModal(t);
+                          }}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition-colors"
+                        >
+                          <Scale className="h-4 w-4" />
+                        </button>
+                      </PermissionGuard>
+
+                      <PermissionGuard permission="treasury.edit">
+                        <button
+                          type="button"
+                          title="تعديل بيانات الخزنة"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openEditModal(t);
+                          }}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </button>
+                      </PermissionGuard>
+
+                      {!t.isMain && (
+                        <PermissionGuard permission="treasury.delete">
+                          <button
+                            type="button"
+                            title="حذف الخزنة"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openDeleteModal(t);
+                            }}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </PermissionGuard>
+                      )}
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-3 gap-2 pt-1">
@@ -621,6 +918,16 @@ export default function TreasuryPage() {
                         label: "عكس قيد",
                         icon: ArrowRightLeft,
                         color: "text-purple-700 bg-purple-50 border-purple-200",
+                      },
+                      adjustment_in: {
+                        label: "تسوية فائض (+)",
+                        icon: Scale,
+                        color: "text-teal-700 bg-teal-50 border-teal-200",
+                      },
+                      adjustment_out: {
+                        label: "تسوية عجز (-)",
+                        icon: SlidersHorizontal,
+                        color: "text-orange-700 bg-orange-50 border-orange-200",
                       },
                     }[tx.transactionType] || {
                       label: tx.transactionType,
@@ -759,12 +1066,14 @@ export default function TreasuryPage() {
                   >
                     إلغاء
                   </button>
-                  <button
+                  <LoadingButton
                     type="submit"
+                    isLoading={submittingTreasury}
+                    loadingText="جاري حفظ الخزنة..."
                     className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-md"
                   >
                     حفظ وإنشاء الخزنة
-                  </button>
+                  </LoadingButton>
                 </div>
               </form>
             </div>
@@ -923,13 +1232,14 @@ export default function TreasuryPage() {
                   >
                     إلغاء
                   </button>
-                  <button
+                  <LoadingButton
                     type="submit"
-                    disabled={submittingTransfer}
+                    isLoading={submittingTransfer}
+                    loadingText="جاري تنفيذ التحويل..."
                     className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-md flex items-center gap-2"
                   >
-                    {submittingTransfer ? "جاري تنفيذ التحويل..." : "تأكيد وتنفيذ التحويل المالي"}
-                  </button>
+                    تأكيد وتنفيذ التحويل المالي
+                  </LoadingButton>
                 </div>
               </form>
             </div>
@@ -1069,12 +1379,302 @@ export default function TreasuryPage() {
                   >
                     إلغاء
                   </button>
-                  <button
+                  <LoadingButton
                     type="submit"
+                    isLoading={submittingDirectTx}
+                    loadingText="جاري تثبيت القيد..."
                     className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-lg"
                   >
                     تثبيت قيد المعاملة
+                  </LoadingButton>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Modal 4: Edit Treasury Metadata Modal (Strict Financial Rule 1: No balance field) */}
+        {isEditModalOpen && editingTreasury && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-3xl max-w-md w-full p-6 border border-slate-100 shadow-2xl">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+                <div className="flex items-center gap-2">
+                  <Pencil className="h-5 w-5 text-indigo-600" />
+                  <h3 className="text-base font-bold text-slate-900">تعديل بيانات الخزنة / الحساب</h3>
+                </div>
+                <button
+                  onClick={() => setIsEditModalOpen(false)}
+                  className="p-1 rounded-lg text-slate-400 hover:text-slate-600"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              {/* Strict Financial Notice */}
+              <div className="mt-4 p-3 bg-indigo-50 border border-indigo-100 rounded-xl text-xs text-indigo-900 font-medium">
+                💡 <span className="font-bold">قاعدة مالية رقابية:</span> لا يمكن تعديل الرصيد المالي مباشرة هنا لحماية السجلات. لتسوية الفروقات أو الأرصدة يرجى استخدام زر <strong>(تسوية الرصيد)</strong>.
+              </div>
+
+              <form onSubmit={handleEditTreasury} className="space-y-4 mt-4">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-700">اسم الخزنة / الحساب *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="اسم الخزنة"
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-700">كود الخزنة</label>
+                    <input
+                      type="text"
+                      placeholder="مثال: TR-01"
+                      value={editCode}
+                      onChange={(e) => setEditCode(e.target.value)}
+                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono dir-ltr"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-700">نوع الحساب</label>
+                    <select
+                      value={editType}
+                      onChange={(e) => setEditType(e.target.value as "cash" | "bank")}
+                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm"
+                    >
+                      <option value="cash">خزنة كاش / نقدية</option>
+                      <option value="bank">حساب بنكي / محفظة</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-700">ملاحظات أو وصف</label>
+                  <textarea
+                    rows={2}
+                    placeholder="ملاحظات تفصيلية..."
+                    value={editNotes}
+                    onChange={(e) => setEditNotes(e.target.value)}
+                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm"
+                  />
+                </div>
+
+                <div className="flex items-center justify-end gap-3 border-t border-slate-100 pt-4">
+                  <button
+                    type="button"
+                    onClick={() => setIsEditModalOpen(false)}
+                    className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-xs font-bold"
+                  >
+                    إلغاء
                   </button>
+                  <LoadingButton
+                    type="submit"
+                    isLoading={submittingEdit}
+                    loadingText="جاري حفظ التعديلات..."
+                    className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-md"
+                  >
+                    حفظ التعديلات
+                  </LoadingButton>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Modal 5: Delete Treasury Confirmation (Strict Financial Rule 2: Balance must be 0) */}
+        {isDeleteModalOpen && deletingTreasury && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-3xl max-w-md w-full p-6 border border-slate-100 shadow-2xl space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                <div className="flex items-center gap-2 text-rose-600">
+                  <AlertCircle className="h-6 w-6" />
+                  <h3 className="text-base font-bold text-slate-900">تأكيد حذف الخزنة</h3>
+                </div>
+                <button
+                  onClick={() => setIsDeleteModalOpen(false)}
+                  className="p-1 rounded-lg text-slate-400 hover:text-slate-600"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              <div className="space-y-3">
+                <p className="text-sm font-semibold text-slate-800 leading-relaxed">
+                  هل أنت متأكد من رغبتك في حذف الخزنة{" "}
+                  <strong className="text-rose-600">"{deletingTreasury.name}"</strong>؟
+                </p>
+
+                {/* Balances Warning Box */}
+                <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl space-y-2 text-xs text-amber-900">
+                  <div className="flex items-center gap-1.5 font-bold">
+                    <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
+                    <span>قاعدة مالية رقابية صارمة:</span>
+                  </div>
+                  <p className="leading-relaxed">
+                    لا يمكن حذف أي خزنة إذا كان بها أي رصيد متبقي غير صفري. يجب تصفية أو تحويل كافة الأرصدة إلى خزنة أخرى أولاً قبل الحذف.
+                  </p>
+                  <div className="bg-white/80 p-2.5 rounded-xl border border-amber-200 mt-2 space-y-1">
+                    <span className="font-bold text-[11px] text-slate-700 block">الأرصدة الحالية بالخزنة:</span>
+                    <div className="flex items-center justify-between text-xs font-black pt-0.5">
+                      <span className="text-emerald-700">{deletingTreasury.balances.EGP.toLocaleString()} EGP</span>
+                      <span className="text-blue-700">${deletingTreasury.balances.USD.toLocaleString()} USD</span>
+                      <span className="text-purple-700">€{deletingTreasury.balances.EUR.toLocaleString()} EUR</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 border-t border-slate-100 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setIsDeleteModalOpen(false)}
+                  className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 text-xs font-bold hover:bg-slate-50"
+                >
+                  إلغاء
+                </button>
+                <LoadingButton
+                  onClick={handleDeleteTreasury}
+                  isLoading={submittingDelete}
+                  loadingText="جاري الحذف..."
+                  variant="destructive"
+                  className="px-5 py-2.5 rounded-xl text-xs font-bold shadow-md"
+                >
+                  تأكيد الحذف
+                </LoadingButton>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Modal 6: Adjust Balance Modal (Logged Transaction Entry) */}
+        {isAdjustModalOpen && adjustingTreasury && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-3xl max-w-md w-full p-6 md:p-8 border border-slate-100 shadow-2xl">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+                <div className="flex items-center gap-2">
+                  <Scale className="h-6 w-6 text-amber-600" />
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900">تسوية رصيد الخزنة</h3>
+                    <p className="text-xs text-slate-500 font-semibold">{adjustingTreasury.name}</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setIsAdjustModalOpen(false)}
+                  className="p-1 rounded-lg text-slate-400 hover:text-slate-600"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              {/* Current Balances preview */}
+              <div className="mt-4 p-3 bg-slate-50 border border-slate-200 rounded-2xl space-y-1">
+                <span className="text-[11px] font-bold text-slate-500 block">الأرصدة الحالية بالخزنة:</span>
+                <div className="flex items-center justify-around gap-2 text-xs font-black">
+                  <span className="text-emerald-700 bg-white px-2.5 py-1 rounded-lg border border-slate-200">
+                    {adjustingTreasury.balances.EGP.toLocaleString()} EGP
+                  </span>
+                  <span className="text-blue-700 bg-white px-2.5 py-1 rounded-lg border border-slate-200">
+                    ${adjustingTreasury.balances.USD.toLocaleString()} USD
+                  </span>
+                  <span className="text-purple-700 bg-white px-2.5 py-1 rounded-lg border border-slate-200">
+                    €{adjustingTreasury.balances.EUR.toLocaleString()} EUR
+                  </span>
+                </div>
+              </div>
+
+              <form onSubmit={handleAdjustTreasury} className="space-y-4 mt-4">
+                {/* Adjustment Direction */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-700">نوع التسوية المحاسبية *</label>
+                  <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 rounded-xl">
+                    <button
+                      type="button"
+                      onClick={() => setAdjustType("deposit")}
+                      className={`py-2 rounded-lg text-xs font-bold transition-all ${
+                        adjustType === "deposit"
+                          ? "bg-emerald-600 text-white shadow"
+                          : "text-slate-600 hover:text-slate-900"
+                      }`}
+                    >
+                      تسوية فائض (زيادة +)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAdjustType("withdrawal")}
+                      className={`py-2 rounded-lg text-xs font-bold transition-all ${
+                        adjustType === "withdrawal"
+                          ? "bg-rose-600 text-white shadow"
+                          : "text-slate-600 hover:text-slate-900"
+                      }`}
+                    >
+                      تسوية عجز (خصم -)
+                    </button>
+                  </div>
+                </div>
+
+                {/* Currency & Amount */}
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="col-span-1 space-y-1.5">
+                    <label className="text-xs font-bold text-slate-700">العملة *</label>
+                    <select
+                      value={adjustCurrency}
+                      onChange={(e) => setAdjustCurrency(e.target.value as "EGP" | "USD" | "EUR")}
+                      className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-800"
+                    >
+                      <option value="EGP">EGP</option>
+                      <option value="USD">USD</option>
+                      <option value="EUR">EUR</option>
+                    </select>
+                  </div>
+
+                  <div className="col-span-2 space-y-1.5">
+                    <label className="text-xs font-bold text-slate-700">مبلغ التسوية *</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      required
+                      placeholder="0.00"
+                      value={adjustAmount}
+                      onChange={(e) => setAdjustAmount(e.target.value)}
+                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-left dir-ltr"
+                    />
+                  </div>
+                </div>
+
+                {/* Reason & Notes (Mandatory) */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-700">سبب ومبرر التسوية الإلزامي *</label>
+                  <textarea
+                    rows={2}
+                    required
+                    placeholder="مثال: تسوية جرد سنوي، تصحيح خطأ تقييد سابق، إثبات عجز/فائض نقدي موثق..."
+                    value={adjustReason}
+                    onChange={(e) => setAdjustReason(e.target.value)}
+                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none"
+                  />
+                </div>
+
+                <div className="flex items-center justify-end gap-3 border-t border-slate-100 pt-4">
+                  <button
+                    type="button"
+                    onClick={() => setIsAdjustModalOpen(false)}
+                    className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 text-xs font-bold"
+                  >
+                    إلغاء
+                  </button>
+                  <LoadingButton
+                    type="submit"
+                    isLoading={submittingAdjust}
+                    loadingText="جاري قيد التسوية..."
+                    className="px-5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shadow-md"
+                  >
+                    تثبيت قيد التسوية
+                  </LoadingButton>
                 </div>
               </form>
             </div>

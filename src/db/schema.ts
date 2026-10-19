@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, boolean, integer, numeric, jsonb, uuid } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, boolean, integer, numeric, jsonb, uuid, check } from 'drizzle-orm/pg-core';
 import { relations, sql } from 'drizzle-orm';
 
 // 0. Roles & Permissions Tables
@@ -209,7 +209,7 @@ export const treasuryTransactions = pgTable('treasury_transactions', {
   treasuryId: uuid('treasury_id').references(() => treasuries.id),
   statementId: uuid('statement_id').references(() => statements.id),
   clientId: uuid('client_id').references(() => clients.id),
-  transactionType: text('transaction_type').notNull(), // deposit, withdraw, transfer_out, transfer_in, reversal
+  transactionType: text('transaction_type').notNull(), // deposit, withdraw, transfer_out, transfer_in, reversal, adjustment_in, adjustment_out
   amount: numeric('amount', { precision: 18, scale: 2 }).notNull(),
   currency: text('currency').notNull().default('EGP'),
   exchangeRateAtTransaction: numeric('exchange_rate_at_transaction', { precision: 18, scale: 4 }).notNull().default('1.0000'),
@@ -224,7 +224,12 @@ export const treasuryTransactions = pgTable('treasury_transactions', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   createdBy: uuid('created_by').references(() => users.id),
-});
+}, (table) => [
+  check(
+    'treasury_transactions_transaction_type_check',
+    sql`${table.transactionType} IN ('deposit', 'withdraw', 'transfer_out', 'transfer_in', 'reversal', 'adjustment_in', 'adjustment_out')`
+  ),
+]);
 
 // 14. Audit Log Table
 export const auditLog = pgTable('audit_log', {

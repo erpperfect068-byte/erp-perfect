@@ -5,6 +5,7 @@ import SidebarLayout from '../../components/SidebarLayout';
 import PermissionGuard from '../../components/PermissionGuard';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../components/Toast';
+import { LoadingButton } from '../../components/LoadingButton';
 import { motion } from 'motion/react';
 import {
   FileText,
@@ -90,6 +91,10 @@ export default function StatementsPage() {
   // Form: Reverse Item
   const [reversalReason, setReversalReason] = useState('');
 
+  // Submit loading states
+  const [isSubmittingItem, setIsSubmittingItem] = useState(false);
+  const [isSubmittingReverse, setIsSubmittingReverse] = useState(false);
+
   async function loadStatements() {
     setLoading(true);
     try {
@@ -134,6 +139,7 @@ export default function StatementsPage() {
       return;
     }
 
+    setIsSubmittingItem(true);
     try {
       const token = await getAuthToken();
       const res = await fetch('/api/statements', {
@@ -171,6 +177,8 @@ export default function StatementsPage() {
     } catch (err) {
       console.error(err);
       showToast('خطأ بالخادم', 'error');
+    } finally {
+      setIsSubmittingItem(false);
     }
   };
 
@@ -178,6 +186,7 @@ export default function StatementsPage() {
     e.preventDefault();
     if (!selectedStatement || !itemToReverse) return;
 
+    setIsSubmittingReverse(true);
     try {
       const token = await getAuthToken();
       const res = await fetch('/api/statements', {
@@ -206,6 +215,8 @@ export default function StatementsPage() {
     } catch (err) {
       console.error(err);
       showToast('خطأ بالخادم', 'error');
+    } finally {
+      setIsSubmittingReverse(false);
     }
   };
 
@@ -516,12 +527,14 @@ export default function StatementsPage() {
                   >
                     إلغاء
                   </button>
-                  <button
+                  <LoadingButton
                     type="submit"
+                    isLoading={isSubmittingItem}
+                    loadingText="جاري تثبيت القيد..."
                     className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-lg"
                   >
                     تثبيت القيد بالكشف
-                  </button>
+                  </LoadingButton>
                 </div>
               </form>
             </div>
@@ -571,12 +584,14 @@ export default function StatementsPage() {
                   >
                     إلغاء
                   </button>
-                  <button
+                  <LoadingButton
                     type="submit"
+                    isLoading={isSubmittingReverse}
+                    loadingText="جاري تثبيت العكس..."
                     className="px-5 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold shadow-lg"
                   >
                     تثبيت قيد العكس والموازنة
-                  </button>
+                  </LoadingButton>
                 </div>
               </form>
             </div>
