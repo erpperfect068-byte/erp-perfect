@@ -43,6 +43,7 @@ export async function POST(req: NextRequest) {
     if (isNaN(numAmount) || numAmount <= 0) {
       return NextResponse.json({ error: 'مبلغ التحويل يجب أن يكون أكبر من 0' }, { status: 400 });
     }
+    
 
     const numRate = parseFloat(Number(exchangeRate).toFixed(4));
     if (fromCurrency !== toCurrency && (isNaN(numRate) || numRate <= 0)) {
