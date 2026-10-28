@@ -17,6 +17,7 @@ import {
   Globe,
   UserCog,
   ShieldCheck,
+  Truck,
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -73,6 +74,13 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
       href: '/shipments',
       icon: Ship,
       checkVisible: (has: (code: string) => boolean) => has('shipments.view') || has('shipments.create'),
+    },
+    {
+      name: 'مقـاولو النقل والتفريغ',
+      href: '/contractors',
+      icon: Truck,
+      checkVisible: (has: (code: string) => boolean) =>
+        has('contractors.view') || has('contractors.create') || has('contractors.invoices_view'),
     },
     {
       name: 'كشوف الحسابات والتسويات',

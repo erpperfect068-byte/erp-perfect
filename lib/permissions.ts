@@ -118,9 +118,17 @@ export const PERMISSION_LABELS: Record<string, string> = {
   'agencies.create': 'إضافة توكيل ملاحي جديد',
   'agencies.update': 'تعديل بيانات التوكيلات الملاحية',
   'agencies.delete': 'حذف توكيل ملاحي',
-  'contractors.create': 'إضافة مقاول أو مورد خدمات',
-  'contractors.update': 'تعديل بيانات المقاولين',
+  'contractors.view': 'عرض قائمة المقاولين وبياناتهم',
+  'contractors.create': 'إضافة مقاول جديد',
+  'contractors.update': 'تعديل بيانات المقاول وحساباته البنكية',
   'contractors.delete': 'حذف مقاول',
+  'contractors.pricing': 'إدارة وتعديل جدول أسعار ومناطق المقاولين',
+  'contractors.invoices_view': 'عرض فواتير ومصروفات المقاولين',
+  'contractors.invoices_create': 'تسجيل فاتورة مصروفات جديدة لمقاول',
+  'contractors.invoices_edit': 'تعديل فاتورة وبنود مصروفات المقاول',
+  'contractors.invoices_delete': 'حذف فاتورة مقاول قيد المراجعة',
+  'contractors.invoices_approve': 'اعتماد وإقفال فاتورة المقاول وإدراجها كدين',
+  'contractors.pay': 'سداد وتحويل فواتير المقاولين من الخزينة',
   'statuses.create': 'إضافة حالة تتبع جمركي جديدة',
   'statuses.update': 'تعديل حالات التتبع',
   'statuses.delete': 'حذف حالات التتبع',
@@ -192,6 +200,19 @@ export const SYSTEM_PERMISSIONS: PermissionDefinition[] = [
 
   // 10. التدقيق
   { code: 'audit.view', module: 'audit', moduleLabelAr: 'سجل التدقيق والرقابة', labelAr: 'عرض سجل الحركات وعمليات النظام (Audit Logs)' },
+
+  // 11. المقاولين ومزودي الخدمات
+  { code: 'contractors.view', module: 'contractors', moduleLabelAr: 'المقاولون ومقدمو الخدمات', labelAr: 'عرض قائمة المقاولين وبياناتهم' },
+  { code: 'contractors.create', module: 'contractors', moduleLabelAr: 'المقاولون ومقدمو الخدمات', labelAr: 'إضافة مقاول جديد' },
+  { code: 'contractors.update', module: 'contractors', moduleLabelAr: 'المقاولون ومقدمو الخدمات', labelAr: 'تعديل بيانات المقاول وحساباته البنكية' },
+  { code: 'contractors.delete', module: 'contractors', moduleLabelAr: 'المقاولون ومقدمو الخدمات', labelAr: 'حذف مقاول' },
+  { code: 'contractors.pricing', module: 'contractors', moduleLabelAr: 'المقاولون ومقدمو الخدمات', labelAr: 'إدارة وتعديل جدول أسعار ومناطق المقاولين' },
+  { code: 'contractors.invoices_view', module: 'contractors', moduleLabelAr: 'المقاولون ومقدمو الخدمات', labelAr: 'عرض فواتير ومصروفات المقاولين' },
+  { code: 'contractors.invoices_create', module: 'contractors', moduleLabelAr: 'المقاولون ومقدمو الخدمات', labelAr: 'تسجيل فاتورة مصروفات جديدة لمقاول' },
+  { code: 'contractors.invoices_edit', module: 'contractors', moduleLabelAr: 'المقاولون ومقدمو الخدمات', labelAr: 'تعديل فاتورة وبنود مصروفات المقاول' },
+  { code: 'contractors.invoices_delete', module: 'contractors', moduleLabelAr: 'المقاولون ومقدمو الخدمات', labelAr: 'حذف فاتورة مقاول قيد المراجعة' },
+  { code: 'contractors.invoices_approve', module: 'contractors', moduleLabelAr: 'المقاولون ومقدمو الخدمات', labelAr: 'اعتماد وإقفال فاتورة المقاول وإدراجها كدين' },
+  { code: 'contractors.pay', module: 'contractors', moduleLabelAr: 'المقاولون ومقدمو الخدمات', labelAr: 'سداد وتحويل فواتير المقاولين من الخزينة' },
 ];
 
 export const DEFAULT_ROLES = [
@@ -225,6 +246,11 @@ export const DEFAULT_ROLES = [
       'deposits.create',
       'clients.view',
       'shipments.view',
+      'contractors.view',
+      'contractors.invoices_view',
+      'contractors.invoices_create',
+      'contractors.invoices_approve',
+      'contractors.pay',
     ],
   },
   {

@@ -98,9 +98,68 @@ export const agencies = pgTable('agencies', {
 // 7. Contractors Table
 export const contractors = pgTable('contractors', {
   id: uuid('id').primaryKey().defaultRandom(),
-  name: text('name').notNull().unique(),
+  companyId: uuid('company_id'),
+  name: text('name').notNull(),
+  taxNumber: text('tax_number'),
+  phone: text('phone'),
+  address: text('address'),
+  notes: text('notes'),
+  isActive: boolean('is_active').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const contractorBankAccounts = pgTable('contractor_bank_accounts', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  contractorId: uuid('contractor_id').notNull().references(() => contractors.id, { onDelete: 'cascade' }),
+  bankName: text('bank_name').notNull(),
+  accountNumber: text('account_number').notNull(),
+  iban: text('iban'),
+  accountHolder: text('account_holder'),
+  isDefault: boolean('is_default').default(false),
+  notes: text('notes'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const contractorRates = pgTable('contractor_rates', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  contractorId: uuid('contractor_id').notNull().references(() => contractors.id, { onDelete: 'cascade' }),
+  zoneName: text('zone_name').notNull(),
+  containerType: text('container_type').default('general'),
+  price: numeric('price', { precision: 15, scale: 2 }).notNull().default('0'),
+  currency: text('currency').notNull().default('EGP'),
+  notes: text('notes'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const contractorInvoices = pgTable('contractor_invoices', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  companyId: uuid('company_id'),
+  contractorId: uuid('contractor_id').notNull().references(() => contractors.id),
+  shipmentId: uuid('shipment_id').notNull(),
+  invoiceNumber: text('invoice_number').notNull(),
+  invoiceDate: text('invoice_date').notNull(),
+  totalAmount: numeric('total_amount', { precision: 15, scale: 2 }).notNull().default('0'),
+  paidAmount: numeric('paid_amount', { precision: 15, scale: 2 }).notNull().default('0'),
+  currency: text('currency').notNull().default('EGP'),
+  status: text('status').notNull().default('pending'),
+  approvedAt: timestamp('approved_at', { withTimezone: true }),
+  approvedBy: uuid('approved_by'),
+  notes: text('notes'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const contractorInvoiceItems = pgTable('contractor_invoice_items', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  invoiceId: uuid('invoice_id').notNull().references(() => contractorInvoices.id, { onDelete: 'cascade' }),
+  itemType: text('item_type').notNull().default('transport'),
+  description: text('description').notNull(),
+  amount: numeric('amount', { precision: 15, scale: 2 }).notNull().default('0'),
+  attachmentUrl: text('attachment_url'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
 // 8. Statuses Table

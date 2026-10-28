@@ -33,6 +33,7 @@ import {
   Scale,
   SlidersHorizontal,
   AlertCircle,
+  CreditCard,
 } from "lucide-react";
 
 interface Treasury {
@@ -83,6 +84,20 @@ export default function TreasuryPage() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTreasuryId, setSelectedTreasuryId] = useState<string>("all");
+
+  // Contractor Debts States
+  const [contractorDebts, setContractorDebts] = useState<any[]>([]);
+  const [totalContractorDebt, setTotalContractorDebt] = useState(0);
+  const [isContractorPayModalOpen, setIsContractorPayModalOpen] = useState(false);
+  const [payingContractorInvoice, setPayingContractorInvoice] = useState<any | null>(null);
+  const [contractorPayFormData, setContractorPayFormData] = useState({
+    treasuryId: "",
+    bankAccountId: "",
+    amount: "",
+    referenceNumber: "",
+    notes: "",
+  });
+  const [submittingContractorPay, setSubmittingContractorPay] = useState(false);
 
   // Modals visibility
   const [isModalOpen, setIsModalOpen] = useState(false); // Direct transaction
@@ -166,6 +181,16 @@ export default function TreasuryPage() {
       if (txRes.ok) {
         setTransactions(await txRes.json());
       }
+
+      // 3. Fetch Contractor Outstanding Payables (Debts Alert)
+      const debtsRes = await fetch("/api/contractor-invoices/payables", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (debtsRes.ok) {
+        const dData = await debtsRes.json();
+        setContractorDebts(dData.payables || []);
+        setTotalContractorDebt(dData.totalOutstandingDebt || 0);
+      }
     } catch (err) {
       console.error(err);
       showToast("فشل تحميل بيانات الخزينة", "error");
@@ -173,6 +198,51 @@ export default function TreasuryPage() {
       setLoading(false);
     }
   }
+
+  const handleOpenContractorPayout = (inv: any) => {
+    setPayingContractorInvoice(inv);
+    const defaultAcc = inv.contractor?.bank_accounts?.find((b: any) => b.is_default) || inv.contractor?.bank_accounts?.[0];
+    setContractorPayFormData({
+      treasuryId: selectedTreasuryId !== "all" ? selectedTreasuryId : (treasuries[0]?.id || ""),
+      bankAccountId: defaultAcc?.id || "",
+      amount: String(inv.remainingAmount || inv.totalAmount),
+      referenceNumber: `TRF-${Date.now().toString().slice(-6)}`,
+      notes: `سداد فاتورة مقاول رقم ${inv.invoiceNumber}`,
+    });
+    setIsContractorPayModalOpen(true);
+  };
+
+  const handleExecuteContractorPayment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!payingContractorInvoice) return;
+    if (!contractorPayFormData.treasuryId) return showToast("يرجى تحديد الخزنة", "warning");
+    if (!contractorPayFormData.bankAccountId) return showToast("يرجى اختيار الحساب البنكي للمقاول", "warning");
+
+    try {
+      setSubmittingContractorPay(true);
+      const token = await getAuthToken();
+      const res = await fetch(`/api/contractor-invoices/${payingContractorInvoice.id}/pay`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(contractorPayFormData),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "فشل سداد الفاتورة");
+
+      showToast(data.message || "تم سداد الفاتورة بنجاح", "success");
+      setIsContractorPayModalOpen(false);
+      setPayingContractorInvoice(null);
+      loadData();
+    } catch (err: any) {
+      showToast(err.message, "error");
+    } finally {
+      setSubmittingContractorPay(false);
+    }
+  };
 
   useEffect(() => {
     loadData();
@@ -731,6 +801,77 @@ export default function TreasuryPage() {
             </div>
           </div>
         </div>
+
+        {/* Contractor Outstanding Debts & Payables Alert Banner */}
+        {(selectedTreasuryId === "all" || activeTreasuryObj?.isMain) && contractorDebts.length > 0 && (
+          <div className="bg-gradient-to-r from-amber-500/10 via-rose-500/10 to-transparent border border-amber-500/30 rounded-3xl p-5 shadow-sm space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-amber-500/20 pb-3">
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-2xl bg-amber-500 text-white flex items-center justify-center font-bold shadow-md shadow-amber-200">
+                  <AlertCircle className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-slate-900 flex items-center gap-2">
+                    تنبيه: توجد فواتير معتمدة ومستحقة الدفع لمقاولي النقل
+                    <span className="px-2 py-0.5 bg-rose-100 text-rose-800 rounded-full text-[11px] font-bold">
+                      {contractorDebts.length} فواتير
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-500 font-medium mt-0.5">
+                    فواتير مصروفات تم إقفالها واعتمادها وتنتظر صرفها وتحويلها من الخزينة.
+                  </p>
+                </div>
+              </div>
+
+              <div className="text-right sm:text-left font-mono">
+                <span className="text-[11px] text-slate-400 block font-bold">إجمالي الديون المستحقة:</span>
+                <span className="text-lg font-black text-rose-600">
+                  {totalContractorDebt.toLocaleString("ar-EG")} ج.م
+                </span>
+              </div>
+            </div>
+
+            {/* List of outstanding debts */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {contractorDebts.map((inv) => (
+                <div
+                  key={inv.id}
+                  className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm flex flex-col justify-between hover:border-amber-400 transition-all"
+                >
+                  <div>
+                    <div className="flex items-start justify-between">
+                      <span className="font-mono text-xs font-bold text-slate-400">فاتورة: {inv.invoiceNumber}</span>
+                      <span className="font-mono text-xs font-black text-rose-600 bg-rose-50 px-2 py-0.5 rounded-lg">
+                        {inv.remainingAmount.toLocaleString("ar-EG")} ج.م
+                      </span>
+                    </div>
+
+                    <h4 className="text-xs font-black text-slate-900 mt-1">
+                      {inv.contractor?.name}
+                    </h4>
+
+                    <div className="mt-2 text-[11px] text-slate-500 space-y-0.5 font-mono">
+                      <div>بوليصة: <span className="font-bold text-indigo-700">{inv.shipment?.bol_number || inv.shipment?.bill_of_lading_number || "بدون"}</span></div>
+                      <div>عميل: <span className="text-slate-700">{inv.shipment?.client?.name || "عام"}</span></div>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 pt-2 border-t border-slate-100 flex items-center justify-between">
+                    <span className="text-[10px] text-slate-400 font-mono">{inv.invoiceDate}</span>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenContractorPayout(inv)}
+                      className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all flex items-center gap-1"
+                    >
+                      <Wallet className="h-3.5 w-3.5" />
+                      سداد الفاتورة
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Combined Treasuries Overview Cards (Only in 'all' view) */}
         {selectedTreasuryId === "all" && treasuries.length > 0 && (
@@ -1675,6 +1816,137 @@ export default function TreasuryPage() {
                   >
                     تثبيت قيد التسوية
                   </LoadingButton>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Contractor Payout Modal from Treasury Alert */}
+        {isContractorPayModalOpen && payingContractorInvoice && (
+          <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white border border-slate-200 rounded-3xl max-w-lg w-full p-6 shadow-2xl animate-in fade-in zoom-in-95">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                <div>
+                  <h3 className="text-base font-black text-slate-900 flex items-center gap-2">
+                    <Wallet className="h-5 w-5 text-indigo-600" />
+                    سداد وتحويل مستحقات مقاول من الخزينة
+                  </h3>
+                  <span className="text-xs text-slate-400">
+                    فاتورة رقم: {payingContractorInvoice.invoiceNumber} | المقاول: {payingContractorInvoice.contractor?.name}
+                  </span>
+                </div>
+                <button
+                  onClick={() => setIsContractorPayModalOpen(false)}
+                  className="p-1 rounded-lg text-slate-400 hover:bg-slate-100"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              <form onSubmit={handleExecuteContractorPayment} className="space-y-4 mt-4">
+                {/* Summary of Debt */}
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-2xl flex items-center justify-between text-xs">
+                  <div>
+                    <span className="text-amber-800 font-bold block">المبلغ المتبقي على الفاتورة:</span>
+                    <span className="text-[11px] text-amber-700">شحنة بوليصة: {payingContractorInvoice.shipment?.bol_number || payingContractorInvoice.shipment?.bill_of_lading_number || "بدون"}</span>
+                  </div>
+                  <span className="text-base font-black text-amber-900 font-mono">
+                    {payingContractorInvoice.remainingAmount.toLocaleString('ar-EG')} ج.م
+                  </span>
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">
+                    الخزنة المراد الصرف منها (نقدية أو بنكية) *
+                  </label>
+                  <select
+                    required
+                    value={contractorPayFormData.treasuryId}
+                    onChange={(e) => setContractorPayFormData({ ...contractorPayFormData, treasuryId: e.target.value })}
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium outline-none"
+                  >
+                    <option value="">اختر الخزنة...</option>
+                    {treasuries.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name} ({t.type === 'bank' ? 'حساب بنكي' : 'خزنة كاش'}) - الرصيد:{' '}
+                        {(t.balances?.EGP || 0).toLocaleString('ar-EG')} ج.م
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">
+                    الحساب البنكي للمقاول المحوّل إليه *
+                  </label>
+                  <select
+                    required
+                    value={contractorPayFormData.bankAccountId}
+                    onChange={(e) => setContractorPayFormData({ ...contractorPayFormData, bankAccountId: e.target.value })}
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium outline-none"
+                  >
+                    <option value="">اختر الحساب البنكي للمقاول...</option>
+                    {payingContractorInvoice.contractor?.bank_accounts?.map((b: any) => (
+                      <option key={b.id} value={b.id}>
+                        {b.bank_name} - رقم: {b.account_number} {b.account_holder ? `(${b.account_holder})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 block mb-1">المبلغ المراد سداده (ج.م) *</label>
+                    <input
+                      type="number"
+                      step="any"
+                      required
+                      max={payingContractorInvoice.remainingAmount}
+                      value={contractorPayFormData.amount}
+                      onChange={(e) => setContractorPayFormData({ ...contractorPayFormData, amount: e.target.value })}
+                      className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 block mb-1">رقم الإشعار / التحويل البنكي</label>
+                    <input
+                      type="text"
+                      value={contractorPayFormData.referenceNumber}
+                      onChange={(e) => setContractorPayFormData({ ...contractorPayFormData, referenceNumber: e.target.value })}
+                      placeholder="TRF-XXXXX"
+                      className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">ملاحظات التحويل</label>
+                  <input
+                    type="text"
+                    value={contractorPayFormData.notes}
+                    onChange={(e) => setContractorPayFormData({ ...contractorPayFormData, notes: e.target.value })}
+                    placeholder="ملاحظات قيد السداد..."
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none"
+                  />
+                </div>
+
+                <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsContractorPayModalOpen(false)}
+                    className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold"
+                  >
+                    إلغاء
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={submittingContractorPay}
+                    className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-100"
+                  >
+                    {submittingContractorPay ? 'جاري التحويل وخصم الخزنة...' : 'تأكيد السداد والخصم'}
+                  </button>
                 </div>
               </form>
             </div>
