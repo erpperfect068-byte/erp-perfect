@@ -649,7 +649,7 @@ export default function TreasuryPage() {
             </div>
 
             <div className="flex items-center gap-2 shrink-0">
-              <PermissionGuard permission="treasury.adjust">
+              <PermissionGuard permission={["treasury.adjust", "treasury.manage_safes"]}>
                 <button
                   type="button"
                   onClick={() => openAdjustModal(activeTreasuryObj)}
@@ -660,7 +660,7 @@ export default function TreasuryPage() {
                 </button>
               </PermissionGuard>
 
-              <PermissionGuard permission="treasury.edit">
+              <PermissionGuard permission={["treasury.edit", "treasury.manage_safes"]}>
                 <button
                   type="button"
                   onClick={() => openEditModal(activeTreasuryObj)}
@@ -764,7 +764,7 @@ export default function TreasuryPage() {
                       )}
 
                       {/* Actions Menu */}
-                      <PermissionGuard permission="treasury.adjust">
+                      <PermissionGuard permission={["treasury.adjust", "treasury.manage_safes"]}>
                         <button
                           type="button"
                           title="تسوية رصيد الخزنة (عجز / زيادة)"
@@ -778,7 +778,7 @@ export default function TreasuryPage() {
                         </button>
                       </PermissionGuard>
 
-                      <PermissionGuard permission="treasury.edit">
+                      <PermissionGuard permission={["treasury.edit", "treasury.manage_safes"]}>
                         <button
                           type="button"
                           title="تعديل بيانات الخزنة"

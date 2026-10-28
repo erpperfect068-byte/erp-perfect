@@ -8,14 +8,21 @@ export interface PermissionDefinition {
 
 export const MODULE_LABELS: Record<string, string> = {
   clients: 'إدارة العملاء والأسعار',
+  client_items: 'أصناف وبنود العملاء',
+  client_pricing: 'اتفاقيات وتسعير العملاء',
   shipments: 'إدارة الشحنات والتخليص',
   statements: 'كشوف الحسابات والتسويات',
+  statement_items: 'بنود ومصروفات كشوف الحسابات',
   deposits: 'أمانات وودائع العملاء',
   treasury: 'الخزينة والمعاملات المالية',
   custody: 'عهد الموظفين وتصفيتها',
   users: 'الموظفون وفريق العمل',
   roles: 'إدارة الأدوار والصلاحيات',
   settings: 'إعدادات التشغيل العامة',
+  ports: 'الموانئ البحرية والجوية',
+  agencies: 'التوكيلات الملاحية',
+  contractors: 'المقاولون ومقدمو الخدمات',
+  statuses: 'حالات وتتبع الشحنات',
   audit: 'سجل التدقيق والرقابة',
   reports: 'التقارير والإحصائيات',
 };
@@ -29,12 +36,22 @@ export const PERMISSION_LABELS: Record<string, string> = {
   'clients.view': 'عرض قائمة العملاء وتفاصيلهم',
   'clients.create': 'إضافة عميل جديد',
   'clients.edit': 'تعديل بيانات العملاء وقوائم الأسعار',
+  'clients.update': 'تحديث وتعديل بيانات العملاء',
   'clients.delete': 'حذف عميل',
+
+  // client items & pricing
+  'client_items.create': 'إضافة أصناف جديدة للعميل',
+  'client_items.update': 'تعديل أصناف العميل',
+  'client_items.delete': 'حذف أصناف العميل',
+  'client_pricing.create': 'إضافة اتفاقية تسعير للعميل',
+  'client_pricing.update': 'تعديل اتفاقيات التسعير',
+  'client_pricing.delete': 'حذف اتفاقيات التسعير',
 
   // shipments
   'shipments.view': 'عرض الشحنات والشهادات الجمركية',
   'shipments.create': 'تسجيل شحنة وبوليصة جديدة',
   'shipments.edit': 'تحديث بيانات ومراحل الشحنات',
+  'shipments.update': 'تعديل بيانات الشحنات',
   'shipments.delete': 'حذف الشحنات',
 
   // treasury
@@ -50,40 +67,63 @@ export const PERMISSION_LABELS: Record<string, string> = {
   // custody
   'custody.view': 'عرض عهد الموظفين وسجل التصفية',
   'custody.create': 'صرف عهدة نقدية جديدة لموظف',
+  'custody.issue': 'صرف وتسليم عهدة جديدة',
   'custody.expense': 'تسجيل مصروف من العهدة',
   'custody.settle': 'استرداد المتبقي وتسوية العهدة',
   'custody.close': 'قفل العهدة نهائياً',
   'custody.reverse': 'عكس وإلغاء بند مصروف عهدة',
+  'custody.manage': 'إدارة ومتابعة العهد وتصفيتها',
 
   // deposits
   'deposits.view': 'عرض سجل ودائع وأمانات العملاء',
   'deposits.create': 'تسجيل أمانة/وديعة جديدة للعميل',
   'deposits.edit': 'تعديل بيانات الأمانة',
+  'deposits.update': 'تحديث بيانات الأمانة',
   'deposits.delete': 'حذف أمانة/وديعة',
 
   // statements
   'statements.view': 'عرض كشوف الحسابات والمصروفات',
   'statements.create': 'إنشاء كشف حساب وتوليد بنود',
   'statements.edit': 'تعديل مبالغ ومصروفات كشف الحساب',
+  'statements.update': 'تحديث بيانات كشف الحساب',
   'statements.delete': 'حذف كشف حساب',
   'statements.print': 'طباعة وتصدير كشف الحساب إلى Excel',
+  'statement_items.create': 'إضافة بنود مصروفات لكشف الحساب',
+  'statement_items.update': 'تعديل بنود مصروفات كشف الحساب',
+  'statement_items.delete': 'حذف بنود كشف الحساب',
 
   // users
   'users.view': 'عرض قائمة موظفي النظام',
   'users.create': 'إضافة موظف جديد',
   'users.invite': 'دعوة موظف جديد',
   'users.edit': 'تعديل بيانات الموظف',
+  'users.update': 'تحديث بيانات الموظف',
   'users.manage_roles': 'تغيير وتعيين أدوار الموظفين',
   'users.delete': 'إيقاف/حذف موظف',
 
   // roles
   'roles.view': 'عرض الأدوار والصلاحيات',
+  'roles.create': 'إنشاء دور وظيفي جديد',
+  'roles.update': 'تعديل الأدوار الوظيفية',
+  'roles.delete': 'حذف الأدوار الوظيفية',
   'roles.manage': 'إدارة الأدوار وتعديل صلاحيات النظام',
 
-  // settings
+  // settings & operational dictionaries
   'settings.view': 'عرض بيانات الموانئ والتوكيلات والمقاولين',
   'settings.edit': 'إضافة وتعديل بيانات الموانئ والإعدادات',
   'settings.manage': 'إدارة إعدادات التشغيل العامة',
+  'ports.create': 'إضافة ميناء بحري أو جوي',
+  'ports.update': 'تعديل بيانات الموانئ',
+  'ports.delete': 'حذف ميناء',
+  'agencies.create': 'إضافة توكيل ملاحي جديد',
+  'agencies.update': 'تعديل بيانات التوكيلات الملاحية',
+  'agencies.delete': 'حذف توكيل ملاحي',
+  'contractors.create': 'إضافة مقاول أو مورد خدمات',
+  'contractors.update': 'تعديل بيانات المقاولين',
+  'contractors.delete': 'حذف مقاول',
+  'statuses.create': 'إضافة حالة تتبع جمركي جديدة',
+  'statuses.update': 'تعديل حالات التتبع',
+  'statuses.delete': 'حذف حالات التتبع',
 
   // reports
   'reports.view': 'عرض التقارير والإحصائيات',
@@ -136,6 +176,7 @@ export const SYSTEM_PERMISSIONS: PermissionDefinition[] = [
   { code: 'custody.create', module: 'custody', moduleLabelAr: 'عهد الموظفين وتصفيتها', labelAr: 'صرف عهدة نقدية جديدة لموظف' },
   { code: 'custody.expense', module: 'custody', moduleLabelAr: 'عهد الموظفين وتصفيتها', labelAr: 'تسجيل مصروف من العهدة' },
   { code: 'custody.settle', module: 'custody', moduleLabelAr: 'عهد الموظفين وتصفيتها', labelAr: 'استرداد المتبقي وتسوية العهدة' },
+  { code: 'custody.manage', module: 'custody', moduleLabelAr: 'عهد الموظفين وتصفيتها', labelAr: 'إدارة ومتابعة العهد وتصفيتها' },
 
   // 7. الموظفين
   { code: 'users.view', module: 'users', moduleLabelAr: 'الموظفون وفريق العمل', labelAr: 'عرض قائمة موظفي النظام' },
