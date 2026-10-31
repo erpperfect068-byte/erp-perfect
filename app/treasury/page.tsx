@@ -6,6 +6,7 @@ import PermissionGuard from "../../components/PermissionGuard";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../components/Toast";
 import { LoadingButton } from "../../components/LoadingButton";
+import { MetricCardSkeleton, TableSkeleton } from "@/components/ui/Skeleton";
 import { motion } from "motion/react";
 import {
   Wallet,
@@ -759,47 +760,57 @@ export default function TreasuryPage() {
 
         {/* Currency Summary Grid for Selected View */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm flex items-center justify-between">
-            <div>
-              <span className="text-xs font-bold text-slate-400 block">
-                {selectedTreasuryId === "all" ? "إجمالي رصيد الخزن (EGP)" : `رصيد (${activeTreasuryObj?.name}) بالجنيه`}
-              </span>
-              <span className="text-2xl font-black text-slate-900 block mt-1">
-                {activeBalances.EGP.toLocaleString("ar-EG", { minimumFractionDigits: 2 })} ج.م
-              </span>
-            </div>
-            <div className="h-11 w-11 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center font-bold">
-              EGP
-            </div>
-          </div>
+          {loading ? (
+            <>
+              <MetricCardSkeleton />
+              <MetricCardSkeleton />
+              <MetricCardSkeleton />
+            </>
+          ) : (
+            <>
+              <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm flex items-center justify-between">
+                <div>
+                  <span className="text-xs font-bold text-slate-400 block">
+                    {selectedTreasuryId === "all" ? "إجمالي رصيد الخزن (EGP)" : `رصيد (${activeTreasuryObj?.name}) بالجنيه`}
+                  </span>
+                  <span className="text-2xl font-black text-slate-900 block mt-1">
+                    {activeBalances.EGP.toLocaleString("ar-EG", { minimumFractionDigits: 2 })} ج.م
+                  </span>
+                </div>
+                <div className="h-11 w-11 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center font-bold">
+                  EGP
+                </div>
+              </div>
 
-          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm flex items-center justify-between">
-            <div>
-              <span className="text-xs font-bold text-slate-400 block">
-                {selectedTreasuryId === "all" ? "إجمالي رصيد الخزن (USD)" : `رصيد (${activeTreasuryObj?.name}) بالدولار`}
-              </span>
-              <span className="text-2xl font-black text-slate-900 block mt-1">
-                ${activeBalances.USD.toLocaleString("en-US", { minimumFractionDigits: 2 })}
-              </span>
-            </div>
-            <div className="h-11 w-11 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center font-bold">
-              USD
-            </div>
-          </div>
+              <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm flex items-center justify-between">
+                <div>
+                  <span className="text-xs font-bold text-slate-400 block">
+                    {selectedTreasuryId === "all" ? "إجمالي رصيد الخزن (USD)" : `رصيد (${activeTreasuryObj?.name}) بالدولار`}
+                  </span>
+                  <span className="text-2xl font-black text-slate-900 block mt-1">
+                    ${activeBalances.USD.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                  </span>
+                </div>
+                <div className="h-11 w-11 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center font-bold">
+                  USD
+                </div>
+              </div>
 
-          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm flex items-center justify-between">
-            <div>
-              <span className="text-xs font-bold text-slate-400 block">
-                {selectedTreasuryId === "all" ? "إجمالي رصيد الخزن (EUR)" : `رصيد (${activeTreasuryObj?.name}) باليورو`}
-              </span>
-              <span className="text-2xl font-black text-slate-900 block mt-1">
-                €{activeBalances.EUR.toLocaleString("en-US", { minimumFractionDigits: 2 })}
-              </span>
-            </div>
-            <div className="h-11 w-11 bg-purple-50 text-purple-600 rounded-xl flex items-center justify-center font-bold">
-              EUR
-            </div>
-          </div>
+              <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm flex items-center justify-between">
+                <div>
+                  <span className="text-xs font-bold text-slate-400 block">
+                    {selectedTreasuryId === "all" ? "إجمالي رصيد الخزن (EUR)" : `رصيد (${activeTreasuryObj?.name}) باليورو`}
+                  </span>
+                  <span className="text-2xl font-black text-slate-900 block mt-1">
+                    €{activeBalances.EUR.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                  </span>
+                </div>
+                <div className="h-11 w-11 bg-purple-50 text-purple-600 rounded-xl flex items-center justify-center font-bold">
+                  EUR
+                </div>
+              </div>
+            </>
+          )}
         </div>
 
         {/* Contractor Outstanding Debts & Payables Alert Banner */}
@@ -1006,11 +1017,7 @@ export default function TreasuryPage() {
           </div>
 
           {loading ? (
-            <div className="p-8 space-y-3">
-              {[1, 2, 3].map((i) => (
-                <div key={i} className="h-10 bg-slate-50 animate-pulse rounded-lg"></div>
-              ))}
-            </div>
+            <TableSkeleton rows={5} cols={8} />
           ) : filteredTx.length === 0 ? (
             <p className="text-xs text-slate-400 text-center py-12">
               لا توجد قيود أو حركات سابقة مطابقة للبحث.

@@ -6,6 +6,11 @@ import PermissionGuard from '@/components/PermissionGuard';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/components/Toast';
 import {
+  MetricCardSkeleton,
+  CardSkeleton,
+  TableSkeleton,
+} from '@/components/ui/Skeleton';
+import {
   Truck,
   Plus,
   Search,
@@ -806,40 +811,50 @@ export default function ContractorsPage() {
 
           {/* Quick Metrics Bar */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-sm flex items-center justify-between">
-              <div>
-                <span className="text-[11px] font-bold text-slate-400 block">إجمالي المقاولين المسجلين</span>
-                <span className="text-2xl font-black text-slate-900 block mt-1">{contractors.length}</span>
-              </div>
-              <div className="h-10 w-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold">
-                <Truck className="h-5 w-5" />
-              </div>
-            </div>
+            {loading ? (
+              <>
+                <MetricCardSkeleton />
+                <MetricCardSkeleton />
+                <MetricCardSkeleton />
+              </>
+            ) : (
+              <>
+                <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-sm flex items-center justify-between">
+                  <div>
+                    <span className="text-[11px] font-bold text-slate-400 block">إجمالي المقاولين المسجلين</span>
+                    <span className="text-2xl font-black text-slate-900 block mt-1">{contractors.length}</span>
+                  </div>
+                  <div className="h-10 w-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold">
+                    <Truck className="h-5 w-5" />
+                  </div>
+                </div>
 
-            <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-sm flex items-center justify-between">
-              <div>
-                <span className="text-[11px] font-bold text-slate-400 block">فواتير قيد المراجعة</span>
-                <span className="text-2xl font-black text-amber-600 block mt-1">
-                  {invoices.filter((i) => i.status === 'pending').length}
-                </span>
-              </div>
-              <div className="h-10 w-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center font-bold">
-                <Clock className="h-5 w-5" />
-              </div>
-            </div>
+                <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-sm flex items-center justify-between">
+                  <div>
+                    <span className="text-[11px] font-bold text-slate-400 block">فواتير قيد المراجعة</span>
+                    <span className="text-2xl font-black text-amber-600 block mt-1">
+                      {invoices.filter((i) => i.status === 'pending').length}
+                    </span>
+                  </div>
+                  <div className="h-10 w-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center font-bold">
+                    <Clock className="h-5 w-5" />
+                  </div>
+                </div>
 
-            <div className="bg-gradient-to-br from-rose-50 to-amber-50 border border-rose-200/80 rounded-2xl p-4 shadow-sm flex items-center justify-between">
-              <div>
-                <span className="text-[11px] font-bold text-rose-700 block">إجمالي الديون المعتمدة المستحقة</span>
-                <span className="text-xl font-black text-rose-700 block mt-1">
-                  {totalOutstandingDebts.toLocaleString('ar-EG')} ج.م
-                </span>
-                <span className="text-[10px] text-slate-500 font-medium">على {approvedDebts.length} فواتير معتمدة</span>
-              </div>
-              <div className="h-10 w-10 rounded-xl bg-rose-600 text-white flex items-center justify-center font-bold shadow-md shadow-rose-200">
-                <ShieldAlert className="h-5 w-5" />
-              </div>
-            </div>
+                <div className="bg-gradient-to-br from-rose-50 to-amber-50 border border-rose-200/80 rounded-2xl p-4 shadow-sm flex items-center justify-between">
+                  <div>
+                    <span className="text-[11px] font-bold text-rose-700 block">إجمالي الديون المعتمدة المستحقة</span>
+                    <span className="text-xl font-black text-rose-700 block mt-1">
+                      {totalOutstandingDebts.toLocaleString('ar-EG')} ج.م
+                    </span>
+                    <span className="text-[10px] text-slate-500 font-medium">على {approvedDebts.length} فواتير معتمدة</span>
+                  </div>
+                  <div className="h-10 w-10 rounded-xl bg-rose-600 text-white flex items-center justify-center font-bold shadow-md shadow-rose-200">
+                    <ShieldAlert className="h-5 w-5" />
+                  </div>
+                </div>
+              </>
+            )}
           </div>
 
           {/* Navigation Tabs */}
@@ -896,141 +911,146 @@ export default function ContractorsPage() {
           {/* TAB 1: Contractors List */}
           {activeTab === 'contractors' && (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {filteredContractors.map((c) => {
-                const defaultBank = (c.bankAccounts || []).find((b) => b.is_default) || c.bankAccounts?.[0];
-                return (
-                  <div
-                    key={c.id}
-                    className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm hover:shadow-md transition-all flex flex-col justify-between"
-                  >
-                    <div>
-                      {/* Top Bar */}
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <h3 className="text-base font-black text-slate-900">{c.name}</h3>
-                          <span className="text-[11px] text-slate-400 font-mono block mt-0.5">
-                            الرقم الضريبي: {c.tax_number || c.taxNumber || 'غير مسجل'}
-                          </span>
-                        </div>
-
-                        {c.totalOutstandingDebt && c.totalOutstandingDebt > 0 ? (
-                          <span className="px-2.5 py-1 bg-rose-50 border border-rose-200 text-rose-700 rounded-lg text-[10px] font-black">
-                            مستحق: {c.totalOutstandingDebt.toLocaleString('ar-EG')} ج.م
-                          </span>
-                        ) : (
-                          <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 rounded-lg text-[10px] font-bold">
-                            خالص الديون
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Contact & Details */}
-                      <div className="space-y-1.5 mt-4 pt-3 border-t border-slate-100 text-xs text-slate-600">
-                        <div className="flex items-center gap-2">
-                          <Phone className="h-3.5 w-3.5 text-slate-400 shrink-0" />
-                          <span>{c.phone || 'لا يوجد هاتف'}</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <MapPin className="h-3.5 w-3.5 text-slate-400 shrink-0" />
-                          <span className="truncate">{c.address || 'العنوان غير محدد'}</span>
-                        </div>
-                      </div>
-
-                      {/* Bank Accounts Summary */}
-                      <div className="mt-4 p-3 bg-slate-50 border border-slate-100 rounded-xl">
-                        <div className="flex items-center justify-between text-xs font-bold text-slate-700 mb-1">
-                          <span className="flex items-center gap-1.5">
-                            <CreditCard className="h-3.5 w-3.5 text-indigo-600" />
-                            الحساب البنكي الرئيسي
-                          </span>
-                          <span className="text-[10px] text-indigo-600 font-mono">
-                            {(c.bankAccounts || []).length} حسابات
-                          </span>
-                        </div>
-                        {defaultBank ? (
-                          <div className="text-[11px] text-slate-600">
-                            <span className="font-bold text-slate-800">{defaultBank.bank_name}</span> -{' '}
-                            <span className="font-mono text-slate-700">{defaultBank.account_number}</span>
-                            {defaultBank.account_holder && (
-                              <span className="block text-[10px] text-slate-400 mt-0.5">
-                                باسم: {defaultBank.account_holder}
-                              </span>
-                            )}
-                          </div>
-                        ) : (
-                          <span className="text-[11px] text-slate-400 italic">لم يتم ربط حساب بنكي بعد</span>
-                        )}
-                      </div>
-
-                      {/* Rates Summary */}
-                      <div className="mt-2 text-[11px] text-slate-500 flex items-center justify-between px-1">
-                        <span>عروض أسعار المناطق المسجلة:</span>
-                        <span className="font-bold text-slate-800 font-mono">{(c.rates || []).length} مناطق</span>
-                      </div>
-                    </div>
-
-                    {/* Actions Menu */}
-                    <div className="pt-4 mt-4 border-t border-slate-100 flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => handleOpenBankModal(c)}
-                          className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-bold transition-colors flex items-center gap-1"
-                        >
-                          <CreditCard className="h-3.5 w-3.5" />
-                          الحسابات
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => handleOpenRateModal(c)}
-                          className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-lg text-xs font-bold transition-colors flex items-center gap-1"
-                        >
-                          <DollarSign className="h-3.5 w-3.5" />
-                          الأسعار
-                        </button>
-                      </div>
-
-                      <div className="flex items-center gap-1">
-                        {canUpdateContractor && (
-                          <button
-                            type="button"
-                            onClick={() => handleOpenContractorModal(c)}
-                            className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
-                            title="تعديل بيانات المقاول"
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </button>
-                        )}
-
-                        {canDeleteContractor && (
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteContractor(c)}
-                            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
-                            title="حذف المقاول"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-
-              {filteredContractors.length === 0 && (
+              {loading ? (
+                Array.from({ length: 6 }).map((_, i) => <CardSkeleton key={i} />)
+              ) : filteredContractors.length === 0 ? (
                 <div className="col-span-full py-16 text-center bg-white border border-dashed border-slate-300 rounded-3xl">
                   <Truck className="h-12 w-12 text-slate-300 mx-auto mb-3" />
                   <p className="text-sm font-bold text-slate-700">لا يوجد مقاولين مسجلين</p>
                   <p className="text-xs text-slate-400 mt-1">ابدأ بإضافة أول مقاول نقل أو خدمات لتسجيل بياناته وحساباته.</p>
                 </div>
+              ) : (
+                filteredContractors.map((c) => {
+                  const defaultBank = (c.bankAccounts || []).find((b) => b.is_default) || c.bankAccounts?.[0];
+                  return (
+                    <div
+                      key={c.id}
+                      className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm hover:shadow-md transition-all flex flex-col justify-between"
+                    >
+                      <div>
+                        {/* Top Bar */}
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <h3 className="text-base font-black text-slate-900">{c.name}</h3>
+                            <span className="text-[11px] text-slate-400 font-mono block mt-0.5">
+                              الرقم الضريبي: {c.tax_number || c.taxNumber || 'غير مسجل'}
+                            </span>
+                          </div>
+
+                          {c.totalOutstandingDebt && c.totalOutstandingDebt > 0 ? (
+                            <span className="px-2.5 py-1 bg-rose-50 border border-rose-200 text-rose-700 rounded-lg text-[10px] font-black">
+                              مستحق: {c.totalOutstandingDebt.toLocaleString('ar-EG')} ج.م
+                            </span>
+                          ) : (
+                            <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 rounded-lg text-[10px] font-bold">
+                              خالص الديون
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Contact & Details */}
+                        <div className="space-y-1.5 mt-4 pt-3 border-t border-slate-100 text-xs text-slate-600">
+                          <div className="flex items-center gap-2">
+                            <Phone className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+                            <span>{c.phone || 'لا يوجد هاتف'}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <MapPin className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+                            <span className="truncate">{c.address || 'العنوان غير محدد'}</span>
+                          </div>
+                        </div>
+
+                        {/* Bank Accounts Summary */}
+                        <div className="mt-4 p-3 bg-slate-50 border border-slate-100 rounded-xl">
+                          <div className="flex items-center justify-between text-xs font-bold text-slate-700 mb-1">
+                            <span className="flex items-center gap-1.5">
+                              <CreditCard className="h-3.5 w-3.5 text-indigo-600" />
+                              الحساب البنكي الرئيسي
+                            </span>
+                            <span className="text-[10px] text-indigo-600 font-mono">
+                              {(c.bankAccounts || []).length} حسابات
+                            </span>
+                          </div>
+                          {defaultBank ? (
+                            <div className="text-[11px] text-slate-600">
+                              <span className="font-bold text-slate-800">{defaultBank.bank_name}</span> -{' '}
+                              <span className="font-mono text-slate-700">{defaultBank.account_number}</span>
+                              {defaultBank.account_holder && (
+                                <span className="block text-[10px] text-slate-400 mt-0.5">
+                                  باسم: {defaultBank.account_holder}
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-[11px] text-slate-400 italic">لم يتم ربط حساب بنكي بعد</span>
+                          )}
+                        </div>
+
+                        {/* Rates Summary */}
+                        <div className="mt-2 text-[11px] text-slate-500 flex items-center justify-between px-1">
+                          <span>عروض أسعار المناطق المسجلة:</span>
+                          <span className="font-bold text-slate-800 font-mono">{(c.rates || []).length} مناطق</span>
+                        </div>
+                      </div>
+
+                      {/* Actions Menu */}
+                      <div className="pt-4 mt-4 border-t border-slate-100 flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenBankModal(c)}
+                            className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-bold transition-colors flex items-center gap-1"
+                          >
+                            <CreditCard className="h-3.5 w-3.5" />
+                            الحسابات
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleOpenRateModal(c)}
+                            className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-lg text-xs font-bold transition-colors flex items-center gap-1"
+                          >
+                            <DollarSign className="h-3.5 w-3.5" />
+                            الأسعار
+                          </button>
+                        </div>
+
+                        <div className="flex items-center gap-1">
+                          {canUpdateContractor && (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenContractorModal(c)}
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
+                              title="تعديل بيانات المقاول"
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </button>
+                          )}
+
+                          {canDeleteContractor && (
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteContractor(c)}
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                              title="حذف المقاول"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
               )}
             </div>
           )}
 
           {/* TAB 2: Invoices List */}
           {activeTab === 'invoices' && (
+            loading ? (
+              <TableSkeleton rows={5} cols={7} />
+            ) : (
             <div className="bg-white border border-slate-200 rounded-3xl overflow-hidden shadow-sm">
               <div className="overflow-x-auto">
                 <table className="w-full text-right text-xs">
@@ -1176,6 +1196,7 @@ export default function ContractorsPage() {
                 </table>
               </div>
             </div>
+            )
           )}
 
           {/* TAB 3: Debts & Payables */}
@@ -1204,79 +1225,81 @@ export default function ContractorsPage() {
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {approvedDebts.map((inv) => (
-                  <div
-                    key={inv.id}
-                    className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm flex flex-col justify-between"
-                  >
-                    <div>
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <span className="text-xs font-bold text-slate-400 block font-mono">
-                            فاتورة: {inv.invoiceNumber}
-                          </span>
-                          <h4 className="text-base font-black text-slate-900 mt-0.5">
-                            {inv.contractor?.name}
-                          </h4>
-                        </div>
-                        <span className="px-3 py-1 bg-rose-50 text-rose-700 border border-rose-200 rounded-xl text-xs font-black font-mono">
-                          {inv.remainingAmount.toLocaleString('ar-EG')} ج.م
-                        </span>
-                      </div>
-
-                      <div className="mt-3 p-3 bg-slate-50 rounded-xl text-xs space-y-1">
-                        <div className="flex items-center justify-between">
-                          <span className="text-slate-500">رقم بوليصة الشحن:</span>
-                          <span className="font-bold text-indigo-700 font-mono">
-                            {inv.shipment?.bol_number || inv.shipment?.bill_of_lading_number || 'غير محدد'}
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <span className="text-slate-500">تاريخ الاعتماد:</span>
-                          <span className="text-slate-700">
-                            {inv.approvedAt ? new Date(inv.approvedAt).toLocaleDateString('ar-EG') : 'معتمد'}
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <span className="text-slate-500">الحساب البنكي المقترح:</span>
-                          <span className="font-bold text-slate-800">
-                            {inv.contractor?.bank_accounts?.[0]?.bank_name || 'يرجى تسجيل حساب'} (
-                            {inv.contractor?.bank_accounts?.[0]?.account_number || ''})
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
-                      <button
-                        type="button"
-                        onClick={() => setViewingInvoice(inv)}
-                        className="text-xs font-bold text-slate-600 hover:text-indigo-600 flex items-center gap-1"
-                      >
-                        <Eye className="h-3.5 w-3.5" />
-                        عرض البنود والمرفقات
-                      </button>
-
-                      {canPay && (
-                        <button
-                          type="button"
-                          onClick={() => handleOpenPayModal(inv)}
-                          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-md shadow-indigo-100 flex items-center gap-1.5 transition-all"
-                        >
-                          <Wallet className="h-4 w-4" />
-                          سداد وتحويل من الخزينة
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ))}
-
-                {approvedDebts.length === 0 && (
+                {loading ? (
+                  Array.from({ length: 4 }).map((_, i) => <CardSkeleton key={i} />)
+                ) : approvedDebts.length === 0 ? (
                   <div className="col-span-full py-16 text-center bg-white border border-dashed border-slate-200 rounded-3xl">
                     <CheckCircle className="h-12 w-12 text-emerald-500 mx-auto mb-2" />
                     <p className="text-sm font-bold text-slate-700">لا توجد ديون مستحقة للمقاولين حالياً</p>
                     <p className="text-xs text-slate-400 mt-1">جميع الفواتير المعتمدة مسددة بالكامل أو قيد المراجعة.</p>
                   </div>
+                ) : (
+                  approvedDebts.map((inv) => (
+                    <div
+                      key={inv.id}
+                      className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm flex flex-col justify-between"
+                    >
+                      <div>
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <span className="text-xs font-bold text-slate-400 block font-mono">
+                              فاتورة: {inv.invoiceNumber}
+                            </span>
+                            <h4 className="text-base font-black text-slate-900 mt-0.5">
+                              {inv.contractor?.name}
+                            </h4>
+                          </div>
+                          <span className="px-3 py-1 bg-rose-50 text-rose-700 border border-rose-200 rounded-xl text-xs font-black font-mono">
+                            {inv.remainingAmount.toLocaleString('ar-EG')} ج.م
+                          </span>
+                        </div>
+
+                        <div className="mt-3 p-3 bg-slate-50 rounded-xl text-xs space-y-1">
+                          <div className="flex items-center justify-between">
+                            <span className="text-slate-500">رقم بوليصة الشحن:</span>
+                            <span className="font-bold text-indigo-700 font-mono">
+                              {inv.shipment?.bol_number || inv.shipment?.bill_of_lading_number || 'غير محدد'}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-slate-500">تاريخ الاعتماد:</span>
+                            <span className="text-slate-700">
+                              {inv.approvedAt ? new Date(inv.approvedAt).toLocaleDateString('ar-EG') : 'معتمد'}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-slate-500">الحساب البنكي المقترح:</span>
+                            <span className="font-bold text-slate-800">
+                              {inv.contractor?.bank_accounts?.[0]?.bank_name || 'يرجى تسجيل حساب'} (
+                              {inv.contractor?.bank_accounts?.[0]?.account_number || ''})
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
+                        <button
+                          type="button"
+                          onClick={() => setViewingInvoice(inv)}
+                          className="text-xs font-bold text-slate-600 hover:text-indigo-600 flex items-center gap-1"
+                        >
+                          <Eye className="h-3.5 w-3.5" />
+                          عرض البنود والمرفقات
+                        </button>
+
+                        {canPay && (
+                          <button
+                            type="button"
+                            onClick={() => handleOpenPayModal(inv)}
+                            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-md shadow-indigo-100 flex items-center gap-1.5 transition-all"
+                          >
+                            <Wallet className="h-4 w-4" />
+                            سداد وتحويل من الخزينة
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))
                 )}
               </div>
             </div>
