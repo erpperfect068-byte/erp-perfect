@@ -114,7 +114,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
         amount: payAmount,
         currency: 'EGP',
         exchange_rate_at_transaction: 1.0,
-        transaction_date: new Date().toISOString().split('T')[0],
+        transaction_date: new Date().toISOString(),
         reference_number: referenceNumber ? referenceNumber.trim() : null,
         contractor_id: invoice.contractor_id,
         contractor_invoice_id: invoice.id,

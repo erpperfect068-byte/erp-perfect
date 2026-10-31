@@ -3,11 +3,9 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../components/Toast';
-import { useRouter } from 'next/navigation';
 import {
   Anchor,
   Compass,
-  Briefcase,
   Layers,
   Plus,
   Shield,
@@ -22,17 +20,17 @@ interface SettingItem {
   color?: string;
 }
 
+type SettingsTab = 'ports' | 'agencies' | 'statuses';
+
 export default function SettingsPage() {
   const { getAuthToken } = useAuth();
   const { showToast } = useToast();
-  const router = useRouter();
-  const [activeTab, setActiveTab] = useState<'ports' | 'agencies' | 'contractors' | 'statuses'>('ports');
+  const [activeTab, setActiveTab] = useState<SettingsTab>('ports');
   const [loading, setLoading] = useState(true);
 
   // States for lists
   const [ports, setPorts] = useState<SettingItem[]>([]);
   const [agencies, setAgencies] = useState<SettingItem[]>([]);
-  const [contractors, setContractors] = useState<SettingItem[]>([]);
   const [statuses, setStatuses] = useState<SettingItem[]>([]);
 
   // Form states
@@ -51,7 +49,6 @@ export default function SettingsPage() {
         const data = await res.json();
         setPorts(data.ports || []);
         setAgencies(data.agencies || []);
-        setContractors(data.contractors || []);
         setStatuses(data.statuses || []);
       } else {
         showToast('فشل تحميل الإعدادات المخصصة', 'error');
@@ -75,10 +72,9 @@ export default function SettingsPage() {
     setIsActionLoading(true);
     try {
       const token = await getAuthToken();
-      const typeMap: Record<string, string> = {
+      const typeMap: Record<SettingsTab, string> = {
         ports: 'port',
         agencies: 'agency',
-        contractors: 'contractor',
         statuses: 'status',
       };
 
@@ -102,7 +98,6 @@ export default function SettingsPage() {
 
         if (activeTab === 'ports') setPorts((prev) => [...prev, newRecord]);
         if (activeTab === 'agencies') setAgencies((prev) => [...prev, newRecord]);
-        if (activeTab === 'contractors') setContractors((prev) => [...prev, newRecord]);
         if (activeTab === 'statuses') setStatuses((prev) => [...prev, newRecord]);
       } else {
         const err = await res.json();
@@ -119,9 +114,13 @@ export default function SettingsPage() {
   const tabs = [
     { id: 'ports', label: 'الموانئ والمنافذ', icon: Anchor },
     { id: 'agencies', label: 'الخطوط الملاحية والتوكيلات', icon: Compass },
-    { id: 'contractors', label: 'المقاولين ومزودي الخدمة', icon: Briefcase },
     { id: 'statuses', label: 'حالات التخليص', icon: Layers },
   ] as const;
+
+  const activeList =
+    activeTab === 'ports' ? ports :
+    activeTab === 'agencies' ? agencies :
+    statuses;
 
   return (
     <SidebarLayout>
@@ -130,7 +129,7 @@ export default function SettingsPage() {
           <div>
             <h1 className="text-2xl font-black text-slate-900">إعدادات التشغيل العامة</h1>
             <p className="text-sm text-slate-500 font-light mt-1">
-              خصص محددات النظام من الموانئ والتوكيلات والمقاولين وحالات التخليص الجمركي.
+              خصص محددات النظام من الموانئ والتوكيلات وحالات التخليص الجمركي. إدارة المقاولين من قسم مقاولو النقل والتفريغ.
             </p>
           </div>
           <Link
@@ -143,14 +142,14 @@ export default function SettingsPage() {
         </div>
 
         {/* Tab switcher */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-slate-100 p-1.5 rounded-2xl border border-slate-200">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 bg-slate-100 p-1.5 rounded-2xl border border-slate-200">
           {tabs.map((tab) => {
             const isActive = activeTab === tab.id;
             return (
               <button
                 key={tab.id}
                 onClick={() => {
-                  setActiveTab(tab.id as any);
+                  setActiveTab(tab.id);
                   setNameInput('');
                 }}
                 className={`flex items-center justify-center gap-2 py-3 px-3 rounded-xl text-xs sm:text-sm font-bold transition-all duration-200 ${
@@ -225,9 +224,7 @@ export default function SettingsPage() {
               </div>
             ) : (
               <div className="divide-y divide-slate-100">
-                {(activeTab === 'ports' ? ports :
-                  activeTab === 'agencies' ? agencies :
-                  activeTab === 'contractors' ? contractors : statuses).map((item) => (
+                {activeList.map((item) => (
                   <div key={item.id} className="py-3 flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       {item.color && (
@@ -237,9 +234,7 @@ export default function SettingsPage() {
                     </div>
                   </div>
                 ))}
-                {(activeTab === 'ports' ? ports :
-                  activeTab === 'agencies' ? agencies :
-                  activeTab === 'contractors' ? contractors : statuses).length === 0 && (
+                {activeList.length === 0 && (
                   <div className="py-8 text-center text-xs text-slate-400">لا توجد سجلات مضافة حتى الآن</div>
                 )}
               </div>

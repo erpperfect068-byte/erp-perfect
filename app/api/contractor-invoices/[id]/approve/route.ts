@@ -17,7 +17,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     const { data: existing, error: fetchErr } = await supabase
       .from('contractor_invoices')
-      .select('*, contractor:contractors(name), shipment:shipments(bol_number)')
+      .select('*, contractor:contractors(name), shipment:shipments(bol_number), items:contractor_invoice_items(id, amount)')
       .eq('id', id)
       .single();
 
@@ -25,6 +25,15 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     if (existing.status === 'approved' || existing.status === 'paid') {
       return NextResponse.json({ error: 'هذه الفاتورة معتمدة بالفعل ومدرجة كدين' }, { status: 400 });
+    }
+
+    const items = existing.items || [];
+    const hasBillableItem = items.some((it: { amount?: number | string }) => Number(it.amount) > 0);
+    if (!hasBillableItem) {
+      return NextResponse.json(
+        { error: 'لا يمكن اعتماد فاتورة بدون بنود بمبلغ أكبر من صفر — أضف البنود من ورقة الفاتورة أولاً' },
+        { status: 400 }
+      );
     }
 
     const { data: updated, error: updateErr } = await supabase

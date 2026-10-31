@@ -67,7 +67,7 @@ export async function POST(req: NextRequest) {
           currency: custody.currency || 'EGP',
           notes: `توريد متبقي عهدة الموظف: ${empName}_${empFingerprint}`,
           reference_number: refNo,
-          transaction_date: new Date().toISOString().split('T')[0],
+          transaction_date: new Date().toISOString(),
           created_by: user.id,
         });
 

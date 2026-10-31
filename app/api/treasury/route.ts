@@ -18,8 +18,12 @@ export async function GET(req: NextRequest) {
 
     let query = supabase
       .from('treasury_transactions')
-      .select('*, client:clients(*), statement:statements(*, shipment:shipments(*)), treasury:treasuries!treasury_id(*), relatedTreasury:treasuries!related_treasury_id(*)')
+      .select(
+        '*, client:clients(*), statement:statements(*, shipment:shipments(*)), treasury:treasuries!treasury_id(*), relatedTreasury:treasuries!related_treasury_id(*), contractorBankAccount:contractor_bank_accounts(*)'
+      )
       .eq('company_id', user.company_id)
+      // Newest first: created_at is authoritative (transaction_date is sometimes date-only midnight)
+      .order('created_at', { ascending: false })
       .order('transaction_date', { ascending: false });
 
     if (treasuryIdParam && treasuryIdParam !== 'all') {
@@ -36,6 +40,18 @@ export async function GET(req: NextRequest) {
       transferGroupId: tx.transfer_group_id,
       clientId: tx.client_id,
       statementId: tx.statement_id,
+      contractorId: tx.contractor_id || null,
+      contractorInvoiceId: tx.contractor_invoice_id || null,
+      contractorBankAccountId: tx.contractor_bank_account_id || null,
+      contractorBankAccount: tx.contractorBankAccount
+        ? {
+            id: tx.contractorBankAccount.id,
+            bankName: tx.contractorBankAccount.bank_name,
+            accountNumber: tx.contractorBankAccount.account_number,
+            accountHolder: tx.contractorBankAccount.account_holder,
+            isDefault: tx.contractorBankAccount.is_default,
+          }
+        : null,
       transactionType: tx.transaction_type,
       amount: parseFloat(Number(tx.amount || 0).toFixed(2)),
       currency: tx.currency || 'EGP',

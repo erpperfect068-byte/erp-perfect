@@ -4,16 +4,25 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 export async function POST(req: NextRequest) {
   try {
     // 1. Fetch test accounts
-    const { data: profiles } = await supabaseAdmin.from('profiles').select('id, email, name');
+    const { data: profiles } = await supabaseAdmin.from('profiles').select('id, email, name, company_id');
     const getUserId = (email: string) => profiles?.find((p) => p.email === email)?.id;
+    const getCompanyId = (email: string) => profiles?.find((p) => p.email === email)?.company_id;
 
-    const adminId = getUserId('admin@test.local') || profiles?.[0]?.id;
+    const adminId = getUserId('admin@test.local') || getUserId('admin@gmail.com') || profiles?.[0]?.id;
     const accountantId = getUserId('accountant@test.local') || adminId;
     const clearanceId = getUserId('clearance@test.local') || adminId;
     const dataentryId = getUserId('dataentry@test.local') || adminId;
+    const companyId =
+      getCompanyId('admin@test.local') ||
+      getCompanyId('admin@gmail.com') ||
+      profiles?.find((p) => p.id === adminId)?.company_id ||
+      null;
 
     if (!adminId) {
       return NextResponse.json({ error: 'لم يتم العثور على حسابات المستخدمين الأساسية' }, { status: 400 });
+    }
+    if (!companyId) {
+      return NextResponse.json({ error: 'حساب الأدمن غير مرتبط بـ company_id' }, { status: 400 });
     }
 
     // 2. Clear operational tables in FK-safe order (EXCLUDING audit_log and roles/profiles)
@@ -93,6 +102,7 @@ export async function POST(req: NextRequest) {
       address: 'المنطقة الصناعية الثالثة، مدينة السادس من أكتوبر، الجيزة',
       tax_number: '100-245-890',
       notes: 'عميل رئيسي، يتم سداد الفواتير خلال أسبوع من الإفراج الجمركي.',
+      company_id: companyId,
       created_by: adminId,
       updated_by: adminId,
     }).select().single();
@@ -115,6 +125,7 @@ export async function POST(req: NextRequest) {
       email: 'procurement@electro-egypt.com',
       address: 'شارع عبد العزيز، العتبة، القاهرة',
       tax_number: '210-983-451',
+      company_id: companyId,
       created_by: adminId,
       updated_by: adminId,
     }).select().single();

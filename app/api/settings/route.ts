@@ -8,23 +8,20 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: error || 'غير مصرح' }, { status });
     }
 
-    // Fetch all lookup tables via user-authenticated Supabase client (RLS enforced)
-    const [portsRes, agenciesRes, contractorsRes, statusesRes] = await Promise.all([
+    // Contractors are managed via /contractors — not settings lookups
+    const [portsRes, agenciesRes, statusesRes] = await Promise.all([
       supabase.from('ports').select('*').eq('company_id', (user as any).company_id).order('name'),
       supabase.from('agencies').select('*').eq('company_id', (user as any).company_id).order('name'),
-      supabase.from('contractors').select('*').eq('company_id', (user as any).company_id).order('name'),
       supabase.from('statuses').select('*').eq('company_id', (user as any).company_id).order('name'),
     ]);
 
     if (portsRes.error) throw portsRes.error;
     if (agenciesRes.error) throw agenciesRes.error;
-    if (contractorsRes.error) throw contractorsRes.error;
     if (statusesRes.error) throw statusesRes.error;
 
     return NextResponse.json({
       ports: portsRes.data || [],
       agencies: agenciesRes.data || [],
-      contractors: contractorsRes.data || [],
       statuses: statusesRes.data || [],
     });
   } catch (error: any) {
@@ -50,6 +47,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'النوع والاسم مطلوبة' }, { status: 400 });
     }
 
+    if (type === 'contractor') {
+      return NextResponse.json(
+        { error: 'إدارة المقاولين تتم من صفحة مقاولو النقل والتفريغ' },
+        { status: 400 }
+      );
+    }
+
     let result;
 
     switch (type) {
@@ -61,12 +65,6 @@ export async function POST(req: NextRequest) {
       }
       case 'agency': {
         const { data, error: err } = await supabase.from('agencies').insert([{ name, company_id: (user as any).company_id || null }]).select().single();
-        if (err) throw err;
-        result = data;
-        break;
-      }
-      case 'contractor': {
-        const { data, error: err } = await supabase.from('contractors').insert([{ name, company_id: (user as any).company_id || null }]).select().single();
         if (err) throw err;
         result = data;
         break;

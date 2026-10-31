@@ -15,23 +15,60 @@ export async function GET(req: NextRequest, context: RouteContext) {
 
     const { id } = await context.params;
 
+    // Keep embed shape aligned with list endpoint — deep payments embeds have broken .single() lookups
     const { data: invoice, error: fetchErr } = await supabase
       .from('contractor_invoices')
       .select(`
         *,
-        contractor:contractors(*, bank_accounts:contractor_bank_accounts(*)),
-        shipment:shipments(*, client:clients(name)),
-        items:contractor_invoice_items(*),
-        payments:treasury_transactions(*, treasury:treasuries(name), bank_account:contractor_bank_accounts(*))
+        contractor:contractors(id, name, phone, tax_number, bank_accounts:contractor_bank_accounts(*)),
+        shipment:shipments(id, bol_number, declaration_number_46, client:clients(id, name)),
+        items:contractor_invoice_items(*)
       `)
       .eq('id', id)
-      .single();
+      .maybeSingle();
 
-    if (fetchErr || !invoice) {
+    if (fetchErr) {
+      console.error('Failed to fetch contractor invoice by id:', id, fetchErr);
+      return NextResponse.json(
+        { error: fetchErr.message || 'فشل استرجاع الفاتورة' },
+        { status: 500 }
+      );
+    }
+
+    if (!invoice) {
       return NextResponse.json({ error: 'الفاتورة غير موجودة' }, { status: 404 });
     }
 
-    return NextResponse.json({ success: true, invoice });
+    const total = Number(invoice.total_amount) || 0;
+    const paid = Number(invoice.paid_amount) || 0;
+    const formatted = {
+      id: invoice.id,
+      invoiceNumber: invoice.invoice_number,
+      invoiceDate: invoice.invoice_date,
+      totalAmount: total,
+      paidAmount: paid,
+      remainingAmount: Math.max(0, total - paid),
+      currency: invoice.currency || 'EGP',
+      status: invoice.status,
+      approvedAt: invoice.approved_at,
+      notes: invoice.notes,
+      contractorId: invoice.contractor_id,
+      contractor: invoice.contractor,
+      shipmentId: invoice.shipment_id,
+      shipment: invoice.shipment,
+      items: (invoice.items || []).map((it: any) => ({
+        id: it.id,
+        itemType: it.item_type,
+        description: it.description,
+        amount: Number(it.amount) || 0,
+        attachmentUrl: it.attachment_url,
+        createdAt: it.created_at,
+      })),
+      createdAt: invoice.created_at,
+      updatedAt: invoice.updated_at,
+    };
+
+    return NextResponse.json({ success: true, invoice: formatted });
   } catch (err: any) {
     return NextResponse.json({ error: err.message || 'فشل استرجاع الفاتورة' }, { status: 500 });
   }
@@ -96,16 +133,56 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
       }
     }
 
-    const { data: updatedInvoice, error: updateErr } = await supabase
+    const { error: updateErr } = await supabase
       .from('contractor_invoices')
       .update(updates)
-      .eq('id', id)
-      .select()
-      .single();
+      .eq('id', id);
 
     if (updateErr) throw updateErr;
 
-    return NextResponse.json({ success: true, message: 'تم تحديث الفاتورة بنجاح', invoice: updatedInvoice });
+    const { data: refreshed, error: refreshErr } = await supabase
+      .from('contractor_invoices')
+      .select(`
+        *,
+        contractor:contractors(id, name, phone, tax_number, bank_accounts:contractor_bank_accounts(*)),
+        shipment:shipments(id, bol_number, declaration_number_46, client:clients(id, name)),
+        items:contractor_invoice_items(*)
+      `)
+      .eq('id', id)
+      .single();
+
+    if (refreshErr || !refreshed) throw refreshErr || new Error('فشل استرجاع الفاتورة بعد التحديث');
+
+    const total = Number(refreshed.total_amount) || 0;
+    const paid = Number(refreshed.paid_amount) || 0;
+    const formatted = {
+      id: refreshed.id,
+      invoiceNumber: refreshed.invoice_number,
+      invoiceDate: refreshed.invoice_date,
+      totalAmount: total,
+      paidAmount: paid,
+      remainingAmount: Math.max(0, total - paid),
+      currency: refreshed.currency || 'EGP',
+      status: refreshed.status,
+      approvedAt: refreshed.approved_at,
+      notes: refreshed.notes,
+      contractorId: refreshed.contractor_id,
+      contractor: refreshed.contractor,
+      shipmentId: refreshed.shipment_id,
+      shipment: refreshed.shipment,
+      items: (refreshed.items || []).map((it: any) => ({
+        id: it.id,
+        itemType: it.item_type,
+        description: it.description,
+        amount: Number(it.amount) || 0,
+        attachmentUrl: it.attachment_url,
+        createdAt: it.created_at,
+      })),
+      createdAt: refreshed.created_at,
+      updatedAt: refreshed.updated_at,
+    };
+
+    return NextResponse.json({ success: true, message: 'تم تحديث الفاتورة بنجاح', invoice: formatted });
   } catch (err: any) {
     return NextResponse.json({ error: err.message || 'فشل تحديث الفاتورة' }, { status: 500 });
   }

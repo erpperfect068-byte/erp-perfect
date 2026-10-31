@@ -138,7 +138,7 @@ export const contractorInvoices = pgTable('contractor_invoices', {
   id: uuid('id').primaryKey().defaultRandom(),
   companyId: uuid('company_id'),
   contractorId: uuid('contractor_id').notNull().references(() => contractors.id),
-  shipmentId: uuid('shipment_id').notNull(),
+  shipmentId: uuid('shipment_id').notNull().references(() => shipments.id),
   invoiceNumber: text('invoice_number').notNull(),
   invoiceDate: text('invoice_date').notNull(),
   totalAmount: numeric('total_amount', { precision: 15, scale: 2 }).notNull().default('0'),

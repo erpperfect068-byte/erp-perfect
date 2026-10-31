@@ -91,17 +91,37 @@ export default function DepositsPage() {
     setLoading(true);
     try {
       const token = await getAuthToken();
-      // Load deposits
-      const depRes = await fetch('/api/deposits', { headers: { 'Authorization': `Bearer ${token}` } });
-      if (depRes.ok) setDeposits(await depRes.json());
+      if (!token) {
+        showToast('جلسة غير صالحة، يرجى تسجيل الدخول مرة أخرى', 'error');
+        return;
+      }
 
-      // Load clients
-      const cliRes = await fetch('/api/clients', { headers: { 'Authorization': `Bearer ${token}` } });
-      if (cliRes.ok) setClients(await cliRes.json());
+      const [depRes, cliRes, shipRes] = await Promise.all([
+        fetch('/api/deposits', { headers: { Authorization: `Bearer ${token}` } }),
+        fetch('/api/clients', { headers: { Authorization: `Bearer ${token}` } }),
+        fetch('/api/shipments', { headers: { Authorization: `Bearer ${token}` } }),
+      ]);
 
-      // Load shipments
-      const shipRes = await fetch('/api/shipments', { headers: { 'Authorization': `Bearer ${token}` } });
-      if (shipRes.ok) setShipments(await shipRes.json());
+      if (depRes.ok) {
+        setDeposits(await depRes.json());
+      } else {
+        const err = await depRes.json().catch(() => ({}));
+        showToast(err.error || 'فشل تحميل قائمة الأمانات', 'error');
+      }
+
+      if (cliRes.ok) {
+        setClients(await cliRes.json());
+      } else {
+        const err = await cliRes.json().catch(() => ({}));
+        showToast(err.error || 'فشل تحميل قائمة العملاء', 'error');
+      }
+
+      if (shipRes.ok) {
+        setShipments(await shipRes.json());
+      } else {
+        const err = await shipRes.json().catch(() => ({}));
+        showToast(err.error || 'فشل تحميل قائمة الشحنات', 'error');
+      }
     } catch (err) {
       console.error(err);
       showToast('فشل تحميل بيانات الأمانات والودائع', 'error');
@@ -520,6 +540,11 @@ export default function DepositsPage() {
                       </option>
                     ))}
                   </select>
+                  {clients.length === 0 && (
+                    <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+                      لا يوجد عملاء نشطون. سجّل عميلاً من صفحة العملاء أولاً ثم ارجع لتسجيل الأمانة.
+                    </p>
+                  )}
                 </div>
 
                 {/* 2. Deposit Type Selector (General vs Linked) */}

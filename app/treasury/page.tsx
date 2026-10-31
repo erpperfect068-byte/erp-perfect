@@ -7,6 +7,10 @@ import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../components/Toast";
 import { LoadingButton } from "../../components/LoadingButton";
 import { MetricCardSkeleton, TableSkeleton } from "@/components/ui/Skeleton";
+import ContractorInvoiceSheet, {
+  type InvoiceSheetInvoice,
+  type InvoicePayoutContext,
+} from "@/components/contractors/ContractorInvoiceSheet";
 import { motion } from "motion/react";
 import {
   Wallet,
@@ -35,7 +39,10 @@ import {
   SlidersHorizontal,
   AlertCircle,
   CreditCard,
+  Loader2,
 } from "lucide-react";
+
+const INVOICE_NUMBER_RE = /(INV-[A-Za-z0-9-]+)/;
 
 interface Treasury {
   id: string;
@@ -62,9 +69,19 @@ interface TreasuryTransaction {
   currency: string;
   exchangeRateAtTransaction: string;
   transactionDate: string;
+  createdAt?: string;
   referenceNumber: string | null;
   notes: string | null;
   isReversed: boolean;
+  contractorInvoiceId?: string | null;
+  contractorBankAccountId?: string | null;
+  contractorBankAccount?: {
+    id: string;
+    bankName: string;
+    accountNumber: string;
+    accountHolder?: string | null;
+    isDefault?: boolean;
+  } | null;
   treasury: { id: string; name: string; code: string | null } | null;
   relatedTreasury: { id: string; name: string; code: string | null } | null;
   client: { id: string; name: string } | null;
@@ -85,6 +102,13 @@ export default function TreasuryPage() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTreasuryId, setSelectedTreasuryId] = useState<string>("all");
+
+  // Contractor invoice sheet (opened from payout ledger notes)
+  const [viewingContractorInvoice, setViewingContractorInvoice] = useState<InvoiceSheetInvoice | null>(null);
+  const [invoicePayoutContext, setInvoicePayoutContext] = useState<InvoicePayoutContext | null>(null);
+  const [loadingInvoiceId, setLoadingInvoiceId] = useState<string | null>(null);
+  const canViewContractorInvoices =
+    hasPermission("contractors.invoices_view") || hasPermission("contractors.view");
 
   // Contractor Debts States
   const [contractorDebts, setContractorDebts] = useState<any[]>([]);
@@ -199,6 +223,40 @@ export default function TreasuryPage() {
       setLoading(false);
     }
   }
+
+  const handleOpenContractorInvoiceSheet = async (tx: TreasuryTransaction) => {
+    const invoiceId = tx.contractorInvoiceId;
+    if (!invoiceId) return;
+    if (loadingInvoiceId) return;
+    if (!canViewContractorInvoices) {
+      showToast("غير مصرح لك بعرض فواتير المقاولين", "warning");
+      return;
+    }
+    try {
+      setLoadingInvoiceId(invoiceId);
+      setInvoicePayoutContext({
+        fromTreasuryName: tx.treasury?.name || null,
+        toBankName: tx.contractorBankAccount?.bankName || null,
+        toAccountNumber: tx.contractorBankAccount?.accountNumber || null,
+        toAccountHolder: tx.contractorBankAccount?.accountHolder || null,
+        paidAmount: Number(tx.amount) || null,
+        currency: tx.currency || "EGP",
+        referenceNumber: tx.referenceNumber || null,
+      });
+      const token = await getAuthToken();
+      const res = await fetch(`/api/contractor-invoices/${invoiceId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "فشل جلب تفاصيل الفاتورة");
+      setViewingContractorInvoice(data.invoice as InvoiceSheetInvoice);
+    } catch (err: any) {
+      setInvoicePayoutContext(null);
+      showToast(err.message || "فشل جلب تفاصيل الفاتورة", "error");
+    } finally {
+      setLoadingInvoiceId(null);
+    }
+  };
 
   const handleOpenContractorPayout = (inv: any) => {
     setPayingContractorInvoice(inv);
@@ -580,17 +638,24 @@ export default function TreasuryPage() {
     }
   };
 
-  // Filter transactions search
-  const filteredTx = transactions.filter((t) => {
-    const q = searchQuery.toLowerCase();
-    return (
-      (t.notes || "").toLowerCase().includes(q) ||
-      (t.referenceNumber || "").toLowerCase().includes(q) ||
-      (t.client?.name || "").toLowerCase().includes(q) ||
-      (t.treasury?.name || "").toLowerCase().includes(q) ||
-      (t.relatedTreasury?.name || "").toLowerCase().includes(q)
-    );
-  });
+  // Filter transactions search — keep newest first across all treasury views
+  const filteredTx = transactions
+    .filter((t) => {
+      const q = searchQuery.toLowerCase();
+      return (
+        (t.notes || "").toLowerCase().includes(q) ||
+        (t.referenceNumber || "").toLowerCase().includes(q) ||
+        (t.client?.name || "").toLowerCase().includes(q) ||
+        (t.treasury?.name || "").toLowerCase().includes(q) ||
+        (t.relatedTreasury?.name || "").toLowerCase().includes(q)
+      );
+    })
+    .slice()
+    .sort((a, b) => {
+      const aTime = new Date(a.createdAt || a.transactionDate).getTime();
+      const bTime = new Date(b.createdAt || b.transactionDate).getTime();
+      return bTime - aTime;
+    });
 
   // Currently active view balances
   const activeBalances = React.useMemo(() => {
@@ -1108,7 +1173,56 @@ export default function TreasuryPage() {
                         </td>
                         <td className="p-4 max-w-xs">
                           <p className="font-semibold text-slate-800 truncate">
-                            {tx.notes || "ـ"}
+                            {(() => {
+                              const notes = tx.notes || "ـ";
+                              const invoiceId = tx.contractorInvoiceId;
+                              const isLoadingThis = loadingInvoiceId === invoiceId;
+                              if (!invoiceId || notes === "ـ") return notes;
+                              const parts = notes.split(INVOICE_NUMBER_RE);
+                              if (parts.length < 2) {
+                                return (
+                                  <span className="inline-flex items-center gap-1.5">
+                                    <span>{notes}</span>
+                                    <button
+                                      type="button"
+                                      disabled={!!loadingInvoiceId}
+                                      onClick={() => handleOpenContractorInvoiceSheet(tx)}
+                                      className="text-indigo-600 hover:text-indigo-800 font-bold text-[11px] underline cursor-pointer disabled:opacity-60 disabled:cursor-wait"
+                                    >
+                                      عرض الفاتورة
+                                    </button>
+                                    {isLoadingThis && (
+                                      <Loader2 className="h-3.5 w-3.5 text-indigo-600 animate-spin shrink-0" />
+                                    )}
+                                  </span>
+                                );
+                              }
+                              return (
+                                <span className="inline-flex items-center gap-1.5 max-w-full">
+                                  <span className="truncate">
+                                    {parts.map((part, i) =>
+                                      INVOICE_NUMBER_RE.test(part) ? (
+                                        <button
+                                          key={`${tx.id}-inv-${i}`}
+                                          type="button"
+                                          disabled={!!loadingInvoiceId}
+                                          onClick={() => handleOpenContractorInvoiceSheet(tx)}
+                                          className="text-indigo-600 hover:text-indigo-800 font-mono font-black underline cursor-pointer disabled:opacity-60 disabled:cursor-wait"
+                                          title="عرض تفاصيل فاتورة المقاول"
+                                        >
+                                          {part}
+                                        </button>
+                                      ) : (
+                                        <span key={`${tx.id}-txt-${i}`}>{part}</span>
+                                      )
+                                    )}
+                                  </span>
+                                  {isLoadingThis && (
+                                    <Loader2 className="h-3.5 w-3.5 text-indigo-600 animate-spin shrink-0" />
+                                  )}
+                                </span>
+                              );
+                            })()}
                           </p>
                         </td>
                         <td className="p-4 text-slate-500 font-medium">
@@ -1958,6 +2072,26 @@ export default function TreasuryPage() {
               </form>
             </div>
           </div>
+        )}
+
+        {viewingContractorInvoice && (
+          <ContractorInvoiceSheet
+            invoice={viewingContractorInvoice}
+            getAuthToken={getAuthToken}
+            canEdit={false}
+            canApprove={false}
+            canPay={false}
+            variant="ledger"
+            payoutContext={invoicePayoutContext}
+            onClose={() => {
+              setViewingContractorInvoice(null);
+              setInvoicePayoutContext(null);
+            }}
+            onUpdated={(updated) => setViewingContractorInvoice(updated)}
+            onApprove={() => {}}
+            onPay={() => {}}
+            showToast={showToast}
+          />
         )}
       </div>
     </SidebarLayout>

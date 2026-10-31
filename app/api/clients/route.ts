@@ -65,7 +65,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'اسم العميل مطلوب' }, { status: 400 });
     }
 
-    // Call atomic RPC function create_client_with_details
+    const companyId = (user as any).company_id;
+    if (!companyId) {
+      return NextResponse.json(
+        { error: 'حسابك غير مرتبط بشركة؛ لا يمكن إنشاء عميل بدون company_id' },
+        { status: 400 }
+      );
+    }
+
+    // RPC sets company_id from profiles.company_id of auth.uid()
     const { data: createdClient, error: rpcError } = await supabase.rpc('create_client_with_details', {
       p_name: name,
       p_contact_person: contactPerson || null,
@@ -79,16 +87,20 @@ export async function POST(req: NextRequest) {
     });
 
     if (rpcError) throw rpcError;
-
-    // Attach company_id to created client
-    if (createdClient?.id && (user as any).company_id) {
-      await supabase
-        .from('clients')
-        .update({ company_id: (user as any).company_id })
-        .eq('id', createdClient.id);
+    if (!createdClient?.id) {
+      return NextResponse.json({ error: 'فشل إنشاء العميل: لم يُرجع المعرف' }, { status: 500 });
     }
 
-    // Format response for frontend compatibility
+    // Safety net if older RPC without company_id is still deployed
+    if (!createdClient.company_id) {
+      const { error: companyErr } = await supabase
+        .from('clients')
+        .update({ company_id: companyId })
+        .eq('id', createdClient.id);
+      if (companyErr) throw companyErr;
+      createdClient.company_id = companyId;
+    }
+
     const formattedResult = {
       ...createdClient,
       contactPerson: createdClient.contact_person,

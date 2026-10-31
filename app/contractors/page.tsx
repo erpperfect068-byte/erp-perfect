@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import SidebarLayout from '@/components/SidebarLayout';
 import PermissionGuard from '@/components/PermissionGuard';
 import { useAuth } from '@/context/AuthContext';
@@ -10,6 +10,7 @@ import {
   CardSkeleton,
   TableSkeleton,
 } from '@/components/ui/Skeleton';
+import ContractorInvoiceSheet from '@/components/contractors/ContractorInvoiceSheet';
 import {
   Truck,
   Plus,
@@ -28,16 +29,14 @@ import {
   Eye,
   X,
   FileCheck,
-  Layers,
   ArrowRight,
-  UploadCloud,
   FileUp,
-  ExternalLink,
   ShieldAlert,
   Wallet,
   Receipt,
   Check,
   Filter,
+  ChevronDown,
 } from 'lucide-react';
 
 interface BankAccount {
@@ -78,13 +77,17 @@ interface Contractor {
 
 interface ShipmentOption {
   id: string;
+  clientId?: string;
+  bolNumber?: string | null;
   bol_number?: string;
   billOfLadingNumber?: string;
   bill_of_lading_number?: string;
+  acid?: string | null;
+  declarationNumber46?: string | null;
   declaration_number_46?: string;
   certificateNumber?: string;
   certificate_number?: string;
-  client?: { name: string } | null;
+  client?: { id?: string; name: string } | null;
 }
 
 interface InvoiceItem {
@@ -135,6 +138,43 @@ interface TreasuryOption {
   balances?: { EGP: number; USD: number; EUR: number };
 }
 
+/** Module-level so Date.now is not called during component render (React purity). */
+function createTimedRef(prefix: string) {
+  return `${prefix}-${Date.now().toString().slice(-6)}`;
+}
+
+const EMPTY_CONTRACTOR_FORM = {
+  name: '',
+  taxNumber: '',
+  phone: '',
+  address: '',
+  notes: '',
+};
+
+const EMPTY_BANK_FORM = {
+  bankName: '',
+  accountNumber: '',
+  iban: '',
+  accountHolder: '',
+  isDefault: false,
+  notes: '',
+};
+
+const EMPTY_RATE_FORM = {
+  zoneName: '',
+  containerType: 'general',
+  price: '',
+  notes: '',
+};
+
+const EMPTY_PAY_FORM = {
+  treasuryId: '',
+  bankAccountId: '',
+  amount: '',
+  referenceNumber: '',
+  notes: '',
+};
+
 export default function ContractorsPage() {
   const { getAuthToken, hasPermission, dbUser } = useAuth();
   const { showToast } = useToast();
@@ -147,68 +187,51 @@ export default function ContractorsPage() {
   const [treasuries, setTreasuries] = useState<TreasuryOption[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Modals state
+  // Modals state — draft keys keep form data across close/reopen of the same context
   const [isContractorModalOpen, setIsContractorModalOpen] = useState(false);
   const [editingContractor, setEditingContractor] = useState<Contractor | null>(null);
-  const [contractorFormData, setContractorFormData] = useState({
-    name: '',
-    taxNumber: '',
-    phone: '',
-    address: '',
-    notes: '',
-  });
+  const [contractorDraftKey, setContractorDraftKey] = useState<string | null>(null);
+  const [contractorFormData, setContractorFormData] = useState({ ...EMPTY_CONTRACTOR_FORM });
 
   // Bank Accounts Modal
   const [isBankModalOpen, setIsBankModalOpen] = useState(false);
   const [selectedContractorForBank, setSelectedContractorForBank] = useState<Contractor | null>(null);
-  const [bankFormData, setBankFormData] = useState({
-    bankName: '',
-    accountNumber: '',
-    iban: '',
-    accountHolder: '',
-    isDefault: false,
-    notes: '',
-  });
+  const [bankDraftKey, setBankDraftKey] = useState<string | null>(null);
+  const [bankFormData, setBankFormData] = useState({ ...EMPTY_BANK_FORM });
 
   // Rates Modal
   const [isRateModalOpen, setIsRateModalOpen] = useState(false);
   const [selectedContractorForRates, setSelectedContractorForRates] = useState<Contractor | null>(null);
-  const [rateFormData, setRateFormData] = useState({
-    zoneName: '',
-    containerType: 'general',
-    price: '',
-    notes: '',
-  });
+  const [ratesDraftKey, setRatesDraftKey] = useState<string | null>(null);
+  const [rateFormData, setRateFormData] = useState({ ...EMPTY_RATE_FORM });
 
-  // Invoices Modal
+  // Invoices Modal (create header only)
   const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false);
-  const [editingInvoice, setEditingInvoice] = useState<ContractorInvoice | null>(null);
+  const [invoiceDraftKey, setInvoiceDraftKey] = useState<string | null>(null);
   const [invoiceFormData, setInvoiceFormData] = useState({
     contractorId: '',
     shipmentId: '',
     invoiceNumber: '',
-    invoiceDate: new Date().toISOString().split('T')[0],
+    invoiceDate: '',
     notes: '',
-    items: [
-      { itemType: 'transport', description: 'نقل حاويات من الميناء', amount: '', attachmentUrl: '' }
-    ],
   });
 
-  // Invoice Details Modal
+  // Invoice paper sheet
   const [viewingInvoice, setViewingInvoice] = useState<ContractorInvoice | null>(null);
 
   // Pay Modal
   const [isPayModalOpen, setIsPayModalOpen] = useState(false);
   const [payingInvoice, setPayingInvoice] = useState<ContractorInvoice | null>(null);
-  const [payFormData, setPayFormData] = useState({
-    treasuryId: '',
-    bankAccountId: '',
-    amount: '',
-    referenceNumber: '',
-    notes: '',
-  });
+  const [payDraftKey, setPayDraftKey] = useState<string | null>(null);
+  const [payFormData, setPayFormData] = useState({ ...EMPTY_PAY_FORM });
 
   const [submitting, setSubmitting] = useState(false);
+
+  // Card accordion: one open bank section and one open rates section at a time
+  const [expandedBankId, setExpandedBankId] = useState<string | null>(null);
+  const [expandedRatesId, setExpandedRatesId] = useState<string | null>(null);
+  const bankAccordionRef = useRef<HTMLDivElement | null>(null);
+  const ratesAccordionRef = useRef<HTMLDivElement | null>(null);
 
   // Permissions
   const canCreateContractor = hasPermission('contractors.create');
@@ -245,7 +268,7 @@ export default function ContractorsPage() {
       }
       if (resShip.ok) {
         const d = await resShip.json();
-        setShipments(d.shipments || []);
+        setShipments(Array.isArray(d) ? d : d.shipments || []);
       }
       if (resTreas.ok) {
         const d = await resTreas.json();
@@ -263,26 +286,43 @@ export default function ContractorsPage() {
     loadData();
   }, []);
 
+  useEffect(() => {
+    if (!expandedBankId && !expandedRatesId) return;
+
+    const handlePointerDown = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (expandedBankId && bankAccordionRef.current && !bankAccordionRef.current.contains(target)) {
+        setExpandedBankId(null);
+      }
+      if (expandedRatesId && ratesAccordionRef.current && !ratesAccordionRef.current.contains(target)) {
+        setExpandedRatesId(null);
+      }
+    };
+
+    document.addEventListener('mousedown', handlePointerDown);
+    return () => document.removeEventListener('mousedown', handlePointerDown);
+  }, [expandedBankId, expandedRatesId]);
+
   // --- Contractor CRUD Handlers ---
   const handleOpenContractorModal = (c?: Contractor) => {
-    if (c) {
+    const nextKey = c ? c.id : 'create';
+    if (contractorDraftKey !== nextKey) {
+      if (c) {
+        setEditingContractor(c);
+        setContractorFormData({
+          name: c.name || '',
+          taxNumber: c.tax_number || c.taxNumber || '',
+          phone: c.phone || '',
+          address: c.address || '',
+          notes: c.notes || '',
+        });
+      } else {
+        setEditingContractor(null);
+        setContractorFormData({ ...EMPTY_CONTRACTOR_FORM });
+      }
+      setContractorDraftKey(nextKey);
+    } else if (c) {
       setEditingContractor(c);
-      setContractorFormData({
-        name: c.name || '',
-        taxNumber: c.tax_number || c.taxNumber || '',
-        phone: c.phone || '',
-        address: c.address || '',
-        notes: c.notes || '',
-      });
-    } else {
-      setEditingContractor(null);
-      setContractorFormData({
-        name: '',
-        taxNumber: '',
-        phone: '',
-        address: '',
-        notes: '',
-      });
     }
     setIsContractorModalOpen(true);
   };
@@ -314,6 +354,9 @@ export default function ContractorsPage() {
 
       showToast(data.message || 'تم حفظ المقاول بنجاح', 'success');
       setIsContractorModalOpen(false);
+      setContractorDraftKey(null);
+      setEditingContractor(null);
+      setContractorFormData({ ...EMPTY_CONTRACTOR_FORM });
       loadData();
     } catch (err: any) {
       showToast(err.message, 'error');
@@ -348,14 +391,13 @@ export default function ContractorsPage() {
   // --- Bank Accounts CRUD ---
   const handleOpenBankModal = (c: Contractor) => {
     setSelectedContractorForBank(c);
-    setBankFormData({
-      bankName: '',
-      accountNumber: '',
-      iban: '',
-      accountHolder: '',
-      isDefault: (c.bankAccounts || []).length === 0,
-      notes: '',
-    });
+    if (bankDraftKey !== c.id) {
+      setBankFormData({
+        ...EMPTY_BANK_FORM,
+        isDefault: (c.bankAccounts || []).length === 0,
+      });
+      setBankDraftKey(c.id);
+    }
     setIsBankModalOpen(true);
   };
 
@@ -383,14 +425,7 @@ export default function ContractorsPage() {
       if (!res.ok) throw new Error(data.error || 'فشل إضافة الحساب البنكي');
 
       showToast('تمت إضافة الحساب البنكي بنجاح', 'success');
-      setBankFormData({
-        bankName: '',
-        accountNumber: '',
-        iban: '',
-        accountHolder: '',
-        isDefault: false,
-        notes: '',
-      });
+      setBankFormData({ ...EMPTY_BANK_FORM });
       // Refresh
       const refCont = await fetch(`/api/contractors/${selectedContractorForBank.id}`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -407,12 +442,54 @@ export default function ContractorsPage() {
     }
   };
 
+  const refreshSelectedBankContractor = async (token: string) => {
+    if (!selectedContractorForBank) return;
+    const refCont = await fetch(`/api/contractors/${selectedContractorForBank.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (refCont.ok) {
+      const d = await refCont.json();
+      setSelectedContractorForBank(d.contractor);
+    }
+    loadData();
+  };
+
+  const handleSetDefaultBankAccount = async (accountId: string) => {
+    if (!selectedContractorForBank) return;
+
+    try {
+      setSubmitting(true);
+      const token = await getAuthToken();
+      if (!token) throw new Error('جلسة غير صالحة، يرجى تسجيل الدخول مرة أخرى');
+
+      const res = await fetch(`/api/contractors/${selectedContractorForBank.id}/bank-accounts`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ accountId, isDefault: true }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'فشل تعيين الحساب الرئيسي');
+
+      showToast('تم تعيين الحساب الرئيسي بنجاح', 'success');
+      await refreshSelectedBankContractor(token);
+    } catch (err: any) {
+      showToast(err.message, 'error');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const handleDeleteBankAccount = async (accountId: string) => {
     if (!selectedContractorForBank) return;
     if (!confirm('هل أنت متأكد من حذف هذا الحساب البنكي؟')) return;
 
     try {
       const token = await getAuthToken();
+      if (!token) throw new Error('جلسة غير صالحة، يرجى تسجيل الدخول مرة أخرى');
+
       const res = await fetch(
         `/api/contractors/${selectedContractorForBank.id}/bank-accounts?accountId=${accountId}`,
         {
@@ -424,15 +501,7 @@ export default function ContractorsPage() {
       if (!res.ok) throw new Error(data.error || 'فشل حذف الحساب');
 
       showToast('تم حذف الحساب البنكي', 'success');
-      // Refresh
-      const refCont = await fetch(`/api/contractors/${selectedContractorForBank.id}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (refCont.ok) {
-        const d = await refCont.json();
-        setSelectedContractorForBank(d.contractor);
-      }
-      loadData();
+      await refreshSelectedBankContractor(token);
     } catch (err: any) {
       showToast(err.message, 'error');
     }
@@ -441,12 +510,10 @@ export default function ContractorsPage() {
   // --- Rates CRUD ---
   const handleOpenRateModal = (c: Contractor) => {
     setSelectedContractorForRates(c);
-    setRateFormData({
-      zoneName: '',
-      containerType: 'general',
-      price: '',
-      notes: '',
-    });
+    if (ratesDraftKey !== c.id) {
+      setRateFormData({ ...EMPTY_RATE_FORM });
+      setRatesDraftKey(c.id);
+    }
     setIsRateModalOpen(true);
   };
 
@@ -474,12 +541,7 @@ export default function ContractorsPage() {
       if (!res.ok) throw new Error(data.error || 'فشل إضافة التسعيرة');
 
       showToast('تم إضافة تسعيرة المنطقة بنجاح', 'success');
-      setRateFormData({
-        zoneName: '',
-        containerType: 'general',
-        price: '',
-        notes: '',
-      });
+      setRateFormData({ ...EMPTY_RATE_FORM });
       // Refresh
       const refCont = await fetch(`/api/contractors/${selectedContractorForRates.id}`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -527,87 +589,24 @@ export default function ContractorsPage() {
   };
 
   // --- Invoices Handlers ---
-  const handleOpenInvoiceModal = (inv?: ContractorInvoice) => {
-    if (inv) {
-      setEditingInvoice(inv);
-      setInvoiceFormData({
-        contractorId: inv.contractorId,
-        shipmentId: inv.shipmentId,
-        invoiceNumber: inv.invoiceNumber,
-        invoiceDate: inv.invoiceDate,
-        notes: inv.notes || '',
-        items: (inv.items && inv.items.length > 0)
-          ? inv.items.map((it) => ({
-              id: it.id,
-              itemType: it.itemType,
-              description: it.description,
-              amount: String(it.amount),
-              attachmentUrl: it.attachmentUrl || '',
-            }))
-          : [{ itemType: 'transport', description: 'نقل حاويات', amount: '', attachmentUrl: '' }],
-      });
-    } else {
-      setEditingInvoice(null);
+  const handleOpenInvoiceModal = () => {
+    const nextKey = 'create';
+    if (invoiceDraftKey !== nextKey) {
       setInvoiceFormData({
         contractorId: contractors[0]?.id || '',
         shipmentId: shipments[0]?.id || '',
-        invoiceNumber: `INV-${Date.now().toString().slice(-6)}`,
+        invoiceNumber: createTimedRef('INV'),
         invoiceDate: new Date().toISOString().split('T')[0],
         notes: '',
-        items: [{ itemType: 'transport', description: 'نقل حاويات من الميناء', amount: '', attachmentUrl: '' }],
       });
+      setInvoiceDraftKey(nextKey);
     }
     setIsInvoiceModalOpen(true);
   };
 
-  const handleAddItemToInvoice = () => {
-    setInvoiceFormData({
-      ...invoiceFormData,
-      items: [
-        ...invoiceFormData.items,
-        { itemType: 'transport', description: '', amount: '', attachmentUrl: '' },
-      ],
-    });
-  };
-
-  const handleRemoveItemFromInvoice = (idx: number) => {
-    if (invoiceFormData.items.length <= 1) return;
-    setInvoiceFormData({
-      ...invoiceFormData,
-      items: invoiceFormData.items.filter((_, i) => i !== idx),
-    });
-  };
-
-  const handleItemChange = (idx: number, field: string, value: string) => {
-    const updated = [...invoiceFormData.items];
-    (updated[idx] as any)[field] = value;
-    setInvoiceFormData({ ...invoiceFormData, items: updated });
-  };
-
-  const handleFileUpload = async (idx: number, e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    try {
-      showToast('جاري رفع الإيصال/المرفق...', 'info');
-      const token = await getAuthToken();
-      const fd = new FormData();
-      fd.append('file', file);
-
-      const res = await fetch('/api/contractor-invoices/upload', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-        body: fd,
-      });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'فشل رفع الملف');
-
-      handleItemChange(idx, 'attachmentUrl', data.url);
-      showToast('تم رفع المرفق بنجاح', 'success');
-    } catch (err: any) {
-      showToast(err.message, 'error');
-    }
+  const handleInvoiceSheetUpdated = (updated: ContractorInvoice) => {
+    setViewingInvoice(updated);
+    setInvoices((prev) => prev.map((inv) => (inv.id === updated.id ? { ...inv, ...updated } : inv)));
   };
 
   const handleSaveInvoice = async (e: React.FormEvent) => {
@@ -619,24 +618,27 @@ export default function ContractorsPage() {
     try {
       setSubmitting(true);
       const token = await getAuthToken();
-      const url = editingInvoice ? `/api/contractor-invoices/${editingInvoice.id}` : '/api/contractor-invoices';
-      const method = editingInvoice ? 'PATCH' : 'POST';
 
-      const res = await fetch(url, {
-        method,
+      const res = await fetch('/api/contractor-invoices', {
+        method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify(invoiceFormData),
+        body: JSON.stringify({ ...invoiceFormData, items: [] }),
       });
 
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'فشل حفظ الفاتورة');
 
-      showToast(data.message || 'تم حفظ الفاتورة بنجاح', 'success');
+      showToast(data.message || 'تم تسجيل الفاتورة — أضف البنود من ورقة الفاتورة', 'success');
       setIsInvoiceModalOpen(false);
-      loadData();
+      setInvoiceDraftKey(null);
+      await loadData();
+
+      if (data.invoice) {
+        setViewingInvoice(data.invoice as ContractorInvoice);
+      }
     } catch (err: any) {
       showToast(err.message, 'error');
     } finally {
@@ -698,16 +700,19 @@ export default function ContractorsPage() {
   // --- Pay Modal Handlers ---
   const handleOpenPayModal = (inv: ContractorInvoice) => {
     setPayingInvoice(inv);
-    const contractor = contractors.find((c) => c.id === inv.contractorId);
-    const defaultAcc = (contractor?.bankAccounts || []).find((b) => b.is_default) || contractor?.bankAccounts?.[0];
+    if (payDraftKey !== inv.id) {
+      const contractor = contractors.find((c) => c.id === inv.contractorId);
+      const defaultAcc = (contractor?.bankAccounts || []).find((b) => b.is_default) || contractor?.bankAccounts?.[0];
 
-    setPayFormData({
-      treasuryId: treasuries[0]?.id || '',
-      bankAccountId: defaultAcc?.id || '',
-      amount: String(inv.remainingAmount || inv.totalAmount),
-      referenceNumber: `TRF-${Date.now().toString().slice(-6)}`,
-      notes: `تحويل مستحقات مقاول - فاتورة رقم ${inv.invoiceNumber}`,
-    });
+      setPayFormData({
+        treasuryId: treasuries[0]?.id || '',
+        bankAccountId: defaultAcc?.id || '',
+        amount: String(inv.remainingAmount || inv.totalAmount),
+        referenceNumber: createTimedRef('TRF'),
+        notes: `تحويل مستحقات مقاول - فاتورة رقم ${inv.invoiceNumber}`,
+      });
+      setPayDraftKey(inv.id);
+    }
     setIsPayModalOpen(true);
   };
 
@@ -736,6 +741,8 @@ export default function ContractorsPage() {
       showToast(data.message || 'تم سداد الفاتورة بنجاح', 'success');
       setIsPayModalOpen(false);
       setPayingInvoice(null);
+      setPayDraftKey(null);
+      setPayFormData({ ...EMPTY_PAY_FORM });
       if (viewingInvoice?.id === payingInvoice.id) setViewingInvoice(null);
       loadData();
     } catch (err: any) {
@@ -961,36 +968,125 @@ export default function ContractorsPage() {
                         </div>
 
                         {/* Bank Accounts Summary */}
-                        <div className="mt-4 p-3 bg-slate-50 border border-slate-100 rounded-xl">
-                          <div className="flex items-center justify-between text-xs font-bold text-slate-700 mb-1">
-                            <span className="flex items-center gap-1.5">
-                              <CreditCard className="h-3.5 w-3.5 text-indigo-600" />
-                              الحساب البنكي الرئيسي
-                            </span>
-                            <span className="text-[10px] text-indigo-600 font-mono">
-                              {(c.bankAccounts || []).length} حسابات
-                            </span>
-                          </div>
-                          {defaultBank ? (
-                            <div className="text-[11px] text-slate-600">
-                              <span className="font-bold text-slate-800">{defaultBank.bank_name}</span> -{' '}
-                              <span className="font-mono text-slate-700">{defaultBank.account_number}</span>
-                              {defaultBank.account_holder && (
-                                <span className="block text-[10px] text-slate-400 mt-0.5">
-                                  باسم: {defaultBank.account_holder}
+                        {(() => {
+                          const bankAccounts = c.bankAccounts || [];
+                          const canExpandBanks = bankAccounts.length > 1;
+                          const banksExpanded = expandedBankId === c.id;
+                          return (
+                            <div
+                              ref={banksExpanded ? bankAccordionRef : undefined}
+                              className={`mt-4 p-3 bg-slate-50 border border-slate-100 rounded-xl ${
+                                canExpandBanks ? 'cursor-pointer select-none' : ''
+                              }`}
+                              onClick={() => {
+                                if (!canExpandBanks) return;
+                                setExpandedBankId((prev) => (prev === c.id ? null : c.id));
+                              }}
+                              role={canExpandBanks ? 'button' : undefined}
+                              aria-expanded={canExpandBanks ? banksExpanded : undefined}
+                            >
+                              <div className="flex items-center justify-between text-xs font-bold text-slate-700 mb-1">
+                                <span className="flex items-center gap-1.5">
+                                  <CreditCard className="h-3.5 w-3.5 text-indigo-600" />
+                                  الحساب البنكي الرئيسي
                                 </span>
+                                <span className="text-[10px] text-indigo-600 font-mono flex items-center gap-1">
+                                  {bankAccounts.length} حسابات
+                                  {canExpandBanks && (
+                                    <ChevronDown
+                                      className={`h-3.5 w-3.5 transition-transform ${banksExpanded ? 'rotate-180' : ''}`}
+                                    />
+                                  )}
+                                </span>
+                              </div>
+                              {banksExpanded && canExpandBanks ? (
+                                <div className="space-y-2 mt-1">
+                                  {bankAccounts.map((acc) => (
+                                    <div key={acc.id} className="text-[11px] text-slate-600 pt-1.5 border-t border-slate-200/80 first:border-0 first:pt-0">
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="font-bold text-slate-800">{acc.bank_name}</span>
+                                        {acc.is_default && (
+                                          <span className="px-1.5 py-0.5 bg-indigo-50 text-indigo-700 rounded text-[10px] font-bold">
+                                            رئيسي
+                                          </span>
+                                        )}
+                                      </div>
+                                      <span className="font-mono text-slate-700 block mt-0.5">{acc.account_number}</span>
+                                      {acc.account_holder && (
+                                        <span className="block text-[10px] text-slate-400 mt-0.5">
+                                          باسم: {acc.account_holder}
+                                        </span>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : defaultBank ? (
+                                <div className="text-[11px] text-slate-600">
+                                  <span className="font-bold text-slate-800">{defaultBank.bank_name}</span> -{' '}
+                                  <span className="font-mono text-slate-700">{defaultBank.account_number}</span>
+                                  {defaultBank.account_holder && (
+                                    <span className="block text-[10px] text-slate-400 mt-0.5">
+                                      باسم: {defaultBank.account_holder}
+                                    </span>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="text-[11px] text-slate-400 italic">لم يتم ربط حساب بنكي بعد</span>
                               )}
                             </div>
-                          ) : (
-                            <span className="text-[11px] text-slate-400 italic">لم يتم ربط حساب بنكي بعد</span>
-                          )}
-                        </div>
+                          );
+                        })()}
 
                         {/* Rates Summary */}
-                        <div className="mt-2 text-[11px] text-slate-500 flex items-center justify-between px-1">
-                          <span>عروض أسعار المناطق المسجلة:</span>
-                          <span className="font-bold text-slate-800 font-mono">{(c.rates || []).length} مناطق</span>
-                        </div>
+                        {(() => {
+                          const rates = c.rates || [];
+                          const canExpandRates = rates.length > 1;
+                          const ratesExpanded = expandedRatesId === c.id;
+                          return (
+                            <div
+                              ref={ratesExpanded ? ratesAccordionRef : undefined}
+                              className={`mt-2 text-[11px] text-slate-500 px-1 ${
+                                canExpandRates ? 'cursor-pointer select-none' : ''
+                              }`}
+                              onClick={() => {
+                                if (!canExpandRates) return;
+                                setExpandedRatesId((prev) => (prev === c.id ? null : c.id));
+                              }}
+                              role={canExpandRates ? 'button' : undefined}
+                              aria-expanded={canExpandRates ? ratesExpanded : undefined}
+                            >
+                              <div className="flex items-center justify-between">
+                                <span>عروض أسعار المناطق المسجلة:</span>
+                                <span className="font-bold text-slate-800 font-mono flex items-center gap-1">
+                                  {rates.length} مناطق
+                                  {canExpandRates && (
+                                    <ChevronDown
+                                      className={`h-3.5 w-3.5 text-slate-500 transition-transform ${ratesExpanded ? 'rotate-180' : ''}`}
+                                    />
+                                  )}
+                                </span>
+                              </div>
+                              {ratesExpanded && canExpandRates && (
+                                <div className="mt-2 space-y-1.5">
+                                  {rates.map((r) => (
+                                    <div
+                                      key={r.id}
+                                      className="flex items-center justify-between gap-2 py-1.5 px-2 bg-slate-50 border border-slate-100 rounded-lg text-[11px]"
+                                    >
+                                      <div className="min-w-0">
+                                        <span className="font-bold text-slate-800 block truncate">{r.zone_name}</span>
+                                        <span className="text-[10px] text-slate-400">{r.container_type}</span>
+                                      </div>
+                                      <span className="font-mono font-bold text-slate-800 shrink-0">
+                                        {Number(r.price).toLocaleString('ar-EG')} {r.currency || 'ج.م'}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </div>
 
                       {/* Actions Menu */}
@@ -1156,17 +1252,6 @@ export default function ContractorsPage() {
                               >
                                 <Wallet className="h-3 w-3" />
                                 سداد
-                              </button>
-                            )}
-
-                            {inv.status === 'pending' && canEditInvoice && (
-                              <button
-                                type="button"
-                                onClick={() => handleOpenInvoiceModal(inv)}
-                                className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600"
-                                title="تعديل الفاتورة"
-                              >
-                                <Pencil className="h-4 w-4" />
                               </button>
                             )}
 
@@ -1433,9 +1518,9 @@ export default function ContractorsPage() {
                   {(selectedContractorForBank.bankAccounts || []).map((acc) => (
                     <div
                       key={acc.id}
-                      className="p-3 bg-slate-50 border border-slate-200/80 rounded-xl flex items-center justify-between"
+                      className="p-3 bg-slate-50 border border-slate-200/80 rounded-xl flex items-center justify-between gap-2"
                     >
-                      <div>
+                      <div className="min-w-0">
                         <div className="flex items-center gap-2">
                           <span className="font-bold text-slate-900 text-xs">{acc.bank_name}</span>
                           {acc.is_default && (
@@ -1453,14 +1538,27 @@ export default function ContractorsPage() {
                         )}
                       </div>
 
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteBankAccount(acc.id)}
-                        className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50"
-                        title="حذف هذا الحساب"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
+                      <div className="flex items-center gap-1 shrink-0">
+                        {!acc.is_default && (
+                          <button
+                            type="button"
+                            onClick={() => handleSetDefaultBankAccount(acc.id)}
+                            disabled={submitting}
+                            className="px-2 py-1 text-[10px] font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors disabled:opacity-50"
+                            title="تعيين كحساب رئيسي"
+                          >
+                            تعيين كرئيسي
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteBankAccount(acc.id)}
+                          className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50"
+                          title="حذف هذا الحساب"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
                     </div>
                   ))}
 
@@ -1694,7 +1792,7 @@ export default function ContractorsPage() {
                 <div className="flex items-center justify-between pb-3 border-b border-slate-100 shrink-0">
                   <h3 className="text-base font-black text-slate-900 flex items-center gap-2">
                     <FileUp className="h-5 w-5 text-indigo-600" />
-                    {editingInvoice ? 'تعديل فاتورة المقاول' : 'تسجيل فاتورة مصروفات جديدة لمقاول'}
+                    تسجيل فاتورة مصروفات جديدة لمقاول
                   </h3>
                   <button
                     onClick={() => setIsInvoiceModalOpen(false)}
@@ -1705,6 +1803,10 @@ export default function ContractorsPage() {
                 </div>
 
                 <form onSubmit={handleSaveInvoice} className="space-y-4 mt-4 overflow-y-auto pr-1 flex-1">
+                  <p className="text-[11px] text-slate-500 bg-slate-50 border border-slate-100 rounded-xl px-3 py-2">
+                    تنشئ هذه الخطوة رأس الفاتورة المرتبطة بالبوليصة فقط. بعد الحفظ تُفتح ورقة الفاتورة لإضافة البنود والإيصالات.
+                  </p>
+
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="text-xs font-bold text-slate-700 block mb-1">المقاول *</label>
@@ -1733,13 +1835,34 @@ export default function ContractorsPage() {
                         onChange={(e) => setInvoiceFormData({ ...invoiceFormData, shipmentId: e.target.value })}
                         className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium outline-none"
                       >
-                        <option value="">اختر الشحنة بالبوليصة...</option>
-                        {shipments.map((s) => (
-                          <option key={s.id} value={s.id}>
-                            بوليصة: {s.bol_number || s.bill_of_lading_number || s.billOfLadingNumber} - عميل: {s.client?.name || 'عام'}
-                          </option>
-                        ))}
+                        <option value="">
+                          {shipments.length === 0
+                            ? 'لا توجد شحنات مسجلة — أضف شحنة من إدارة الشحنات أولاً'
+                            : 'اختر الشحنة بالبوليصة...'}
+                        </option>
+                        {shipments.map((s) => {
+                          const bol =
+                            s.bolNumber ||
+                            s.bol_number ||
+                            s.billOfLadingNumber ||
+                            s.bill_of_lading_number ||
+                            s.acid ||
+                            s.declarationNumber46 ||
+                            s.declaration_number_46 ||
+                            'بدون رقم';
+                          const clientName = s.client?.name || 'عميل غير محدد';
+                          return (
+                            <option key={s.id} value={s.id}>
+                              بوليصة: {bol} — العميل: {clientName}
+                            </option>
+                          );
+                        })}
                       </select>
+                      {shipments.length === 0 && (
+                        <p className="text-[10px] text-amber-700 mt-1.5">
+                          لا تظهر بوالص لأن قائمة الشحنات فارغة لهذه الشركة.
+                        </p>
+                      )}
                     </div>
                   </div>
 
@@ -1767,119 +1890,6 @@ export default function ContractorsPage() {
                     </div>
                   </div>
 
-                  {/* Items Builder */}
-                  <div className="pt-2">
-                    <div className="flex items-center justify-between mb-2">
-                      <label className="text-xs font-black text-slate-900 flex items-center gap-1.5">
-                        <Layers className="h-4 w-4 text-indigo-600" />
-                        بنود المصروفات والإيصالات المرفقة
-                      </label>
-                      <button
-                        type="button"
-                        onClick={handleAddItemToInvoice}
-                        className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1"
-                      >
-                        <Plus className="h-3.5 w-3.5" />
-                        إضافة بند آخر
-                      </button>
-                    </div>
-
-                    <div className="space-y-3">
-                      {invoiceFormData.items.map((it, idx) => (
-                        <div key={idx} className="p-3 bg-slate-50 border border-slate-200 rounded-2xl space-y-2">
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-[11px] font-bold text-slate-600">بند #{idx + 1}</span>
-                            {invoiceFormData.items.length > 1 && (
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveItemFromInvoice(idx)}
-                                className="text-slate-400 hover:text-rose-600 text-xs"
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </button>
-                            )}
-                          </div>
-
-                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                            <div>
-                              <select
-                                value={it.itemType}
-                                onChange={(e) => handleItemChange(idx, 'itemType', e.target.value)}
-                                className="w-full px-2.5 py-2 bg-white border border-slate-200 rounded-xl text-xs outline-none"
-                              >
-                                <option value="transport">نقل وتوصيل</option>
-                                <option value="demurrage">مبيت سيارات</option>
-                                <option value="weighing">رسوم ميزان</option>
-                                <option value="toll">كارتة طريق</option>
-                                <option value="loading">تعتيق وتفريغ</option>
-                                <option value="other">مصروفات أخرى</option>
-                              </select>
-                            </div>
-                            <div className="sm:col-span-2">
-                              <input
-                                type="text"
-                                required
-                                placeholder="وصف البند التفصيلي..."
-                                value={it.description}
-                                onChange={(e) => handleItemChange(idx, 'description', e.target.value)}
-                                className="w-full px-2.5 py-2 bg-white border border-slate-200 rounded-xl text-xs outline-none"
-                              />
-                            </div>
-                          </div>
-
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 items-center">
-                            <div>
-                              <input
-                                type="number"
-                                step="any"
-                                required
-                                placeholder="المبلغ بالجنيه *"
-                                value={it.amount}
-                                onChange={(e) => handleItemChange(idx, 'amount', e.target.value)}
-                                className="w-full px-2.5 py-2 bg-white border border-slate-200 rounded-xl text-xs font-mono outline-none"
-                              />
-                            </div>
-
-                            <div className="flex items-center gap-2">
-                              <label className="flex items-center justify-center gap-1.5 px-3 py-2 bg-white border border-dashed border-slate-300 rounded-xl text-xs font-bold text-slate-600 hover:border-indigo-500 cursor-pointer w-full transition-all">
-                                <UploadCloud className="h-3.5 w-3.5 text-indigo-500" />
-                                <span>{it.attachmentUrl ? 'تغيير المرفق' : 'رفع إيصال / صورة'}</span>
-                                <input
-                                  type="file"
-                                  accept="image/*,application/pdf"
-                                  className="hidden"
-                                  onChange={(e) => handleFileUpload(idx, e)}
-                                />
-                              </label>
-                              {it.attachmentUrl && (
-                                <a
-                                  href={it.attachmentUrl}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="p-2 bg-indigo-50 text-indigo-700 rounded-xl hover:bg-indigo-100"
-                                  title="معاينة المرفق"
-                                >
-                                  <ExternalLink className="h-3.5 w-3.5" />
-                                </a>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* Calculated Total */}
-                    <div className="mt-3 p-3 bg-indigo-50 border border-indigo-100 rounded-2xl flex items-center justify-between">
-                      <span className="text-xs font-bold text-indigo-950">إجمالي قيمة الفاتورة:</span>
-                      <span className="text-base font-black text-indigo-700 font-mono">
-                        {invoiceFormData.items
-                          .reduce((sum, it) => sum + (Number(it.amount) || 0), 0)
-                          .toLocaleString('ar-EG')}{' '}
-                        ج.م
-                      </span>
-                    </div>
-                  </div>
-
                   <div>
                     <label className="text-xs font-bold text-slate-700 block mb-1">ملاحظات الفاتورة</label>
                     <textarea
@@ -1904,7 +1914,7 @@ export default function ContractorsPage() {
                       disabled={submitting}
                       className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-md shadow-indigo-100"
                     >
-                      {submitting ? 'جاري الحفظ...' : 'تسجيل الفاتورة'}
+                      {submitting ? 'جاري الحفظ...' : 'إنشاء الفاتورة وفتح الورقة'}
                     </button>
                   </div>
                 </form>
@@ -1913,144 +1923,24 @@ export default function ContractorsPage() {
           )}
 
           {/* ========================================================= */}
-          {/* MODAL 5: Viewing Invoice Details & Attachments */}
+          {/* MODAL 5: Invoice paper sheet (view + manage items) */}
           {/* ========================================================= */}
           {viewingInvoice && (
-            <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-              <div className="bg-white border border-slate-200 rounded-3xl max-w-xl w-full p-6 shadow-2xl animate-in fade-in zoom-in-95 max-h-[90vh] flex flex-col">
-                <div className="flex items-center justify-between pb-3 border-b border-slate-100 shrink-0">
-                  <div>
-                    <h3 className="text-base font-black text-slate-900 flex items-center gap-2">
-                      <Receipt className="h-5 w-5 text-indigo-600" />
-                      تفاصيل فاتورة المقاول: {viewingInvoice.invoiceNumber}
-                    </h3>
-                    <span className="text-xs text-slate-400">
-                      التاريخ: {viewingInvoice.invoiceDate} | الشحنة:{' '}
-                      {viewingInvoice.shipment?.bol_number || viewingInvoice.shipment?.bill_of_lading_number || 'بدون'}
-                    </span>
-                  </div>
-                  <button
-                    onClick={() => setViewingInvoice(null)}
-                    className="p-1 rounded-lg text-slate-400 hover:bg-slate-100"
-                  >
-                    <X className="h-5 w-5" />
-                  </button>
-                </div>
-
-                <div className="space-y-4 mt-4 overflow-y-auto pr-1 flex-1 text-xs">
-                  {/* Status Banner */}
-                  <div className="p-3 bg-slate-50 rounded-2xl flex items-center justify-between">
-                    <div>
-                      <span className="text-slate-500 block text-[11px]">حالة الفاتورة</span>
-                      <span className="font-bold text-slate-900 mt-0.5 block">
-                        {viewingInvoice.status === 'pending' && 'قيد المراجعة (لم تُعتمد كدين بعد)'}
-                        {viewingInvoice.status === 'approved' && 'معتمدة - دين مستحق على الشركة'}
-                        {viewingInvoice.status === 'partially_paid' && 'مدفوعة جزئياً'}
-                        {viewingInvoice.status === 'paid' && 'مدفوعة بالكامل'}
-                      </span>
-                    </div>
-
-                    <div className="text-left font-mono">
-                      <span className="text-slate-500 block text-[11px]">المبلغ الكلي / المتبقي</span>
-                      <span className="font-black text-indigo-700 block text-sm">
-                        {viewingInvoice.totalAmount.toLocaleString('ar-EG')} ج.م
-                      </span>
-                      {viewingInvoice.remainingAmount > 0 && (
-                        <span className="text-rose-600 font-bold text-[11px] block">
-                          متبقي: {viewingInvoice.remainingAmount.toLocaleString('ar-EG')} ج.م
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Items Table */}
-                  <div>
-                    <h4 className="font-bold text-slate-900 mb-2">بنود المصروفات والإيصالات:</h4>
-                    <div className="space-y-2">
-                      {(viewingInvoice.items || []).map((it, idx) => (
-                        <div
-                          key={idx}
-                          className="p-3 bg-white border border-slate-200 rounded-xl flex items-center justify-between"
-                        >
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <span className="font-bold text-slate-800">{it.description}</span>
-                              <span className="px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded text-[10px]">
-                                {it.itemType}
-                              </span>
-                            </div>
-                            {it.attachmentUrl && (
-                              <a
-                                href={it.attachmentUrl}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="inline-flex items-center gap-1 text-[11px] text-indigo-600 font-bold hover:underline mt-1"
-                              >
-                                <ExternalLink className="h-3 w-3" />
-                                معاينة الإيصال / المرفق
-                              </a>
-                            )}
-                          </div>
-
-                          <span className="font-black text-slate-900 font-mono text-sm">
-                            {it.amount.toLocaleString('ar-EG')} ج.م
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Bank Details */}
-                  {viewingInvoice.contractor?.bank_accounts && viewingInvoice.contractor.bank_accounts.length > 0 && (
-                    <div className="p-3 bg-indigo-50/50 border border-indigo-100 rounded-2xl">
-                      <h4 className="font-bold text-indigo-950 mb-1 flex items-center gap-1.5">
-                        <CreditCard className="h-3.5 w-3.5 text-indigo-600" />
-                        الحسابات البنكية للمقاول المسجلة:
-                      </h4>
-                      {viewingInvoice.contractor.bank_accounts.map((b) => (
-                        <div key={b.id} className="text-[11px] text-slate-600 mt-1">
-                          • <span className="font-bold text-slate-800">{b.bank_name}</span> - رقم:{' '}
-                          <span className="font-mono text-slate-800">{b.account_number}</span> (باسم: {b.account_holder || 'نفس المقاول'})
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-2 shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => setViewingInvoice(null)}
-                    className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl text-xs font-bold"
-                  >
-                    إغلاق
-                  </button>
-
-                  <div className="flex items-center gap-2">
-                    {viewingInvoice.status === 'pending' && canApproveInvoice && (
-                      <button
-                        type="button"
-                        onClick={() => handleApproveInvoice(viewingInvoice)}
-                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-100"
-                      >
-                        اعتماد الفاتورة كدين
-                      </button>
-                    )}
-
-                    {['approved', 'partially_paid'].includes(viewingInvoice.status) && canPay && (
-                      <button
-                        type="button"
-                        onClick={() => handleOpenPayModal(viewingInvoice)}
-                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-md shadow-indigo-100 flex items-center gap-1"
-                      >
-                        <Wallet className="h-4 w-4" />
-                        سداد وتحويل من الخزينة
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
+            <ContractorInvoiceSheet
+              invoice={viewingInvoice}
+              getAuthToken={getAuthToken}
+              canEdit={canEditInvoice}
+              canApprove={canApproveInvoice}
+              canPay={canPay}
+              onClose={() => setViewingInvoice(null)}
+              onUpdated={handleInvoiceSheetUpdated}
+              onApprove={handleApproveInvoice}
+              onPay={(inv) => {
+                setViewingInvoice(null);
+                handleOpenPayModal(inv as ContractorInvoice);
+              }}
+              showToast={showToast}
+            />
           )}
 
           {/* ========================================================= */}

@@ -97,14 +97,11 @@ export async function POST(req: NextRequest) {
     if (!invoiceNumber || !invoiceNumber.trim()) {
       return NextResponse.json({ error: 'رقم الفاتورة مطلوب' }, { status: 400 });
     }
-    if (!Array.isArray(items) || items.length === 0) {
-      return NextResponse.json({ error: 'يجب إضافة بند واحد على الأقل في الفاتورة' }, { status: 400 });
-    }
 
     // Verify shipment exists and belongs to company
     const { data: shipment, error: shipErr } = await supabase
       .from('shipments')
-      .select('id, bol_number')
+      .select('id, bol_number, client:clients(id, name)')
       .eq('id', shipmentId)
       .single();
 
@@ -112,12 +109,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'الشحنة المحددة غير موجودة' }, { status: 400 });
     }
 
-    // Calculate total amount from items
-    const validItems = items.filter((it: any) => it.description && Number(it.amount) >= 0);
-    if (validItems.length === 0) {
-      return NextResponse.json({ error: 'يرجى إدخال وصف ومبلغ صحيح لكل بند' }, { status: 400 });
-    }
-
+    // Items optional on create — line items are managed later from the invoice sheet
+    const rawItems = Array.isArray(items) ? items : [];
+    const validItems = rawItems.filter((it: any) => it.description && Number(it.amount) >= 0);
     const totalAmount = validItems.reduce((sum: number, it: any) => sum + (Number(it.amount) || 0), 0);
 
     // 1. Insert Contractor Invoice
@@ -140,31 +134,68 @@ export async function POST(req: NextRequest) {
     const { data: newInvoice, error: invErr } = await supabase
       .from('contractor_invoices')
       .insert(invoicePayload)
-      .select()
+      .select(`
+        *,
+        contractor:contractors(id, name, phone, tax_number, bank_accounts:contractor_bank_accounts(*)),
+        shipment:shipments(id, bol_number, declaration_number_46, client:clients(id, name)),
+        items:contractor_invoice_items(*)
+      `)
       .single();
 
     if (invErr) throw invErr;
 
-    // 2. Insert Invoice Items
-    const itemsPayload = validItems.map((it: any) => ({
-      invoice_id: newInvoice.id,
-      item_type: it.itemType || 'transport',
-      description: it.description.trim(),
-      amount: Number(it.amount) || 0,
-      attachment_url: it.attachmentUrl || null,
-      created_at: new Date().toISOString(),
-    }));
+    // 2. Insert Invoice Items (only when provided)
+    if (validItems.length > 0) {
+      const itemsPayload = validItems.map((it: any) => ({
+        invoice_id: newInvoice.id,
+        item_type: it.itemType || 'transport',
+        description: it.description.trim(),
+        amount: Number(it.amount) || 0,
+        attachment_url: it.attachmentUrl || null,
+        created_at: new Date().toISOString(),
+      }));
 
-    const { error: itemsErr } = await supabase
-      .from('contractor_invoice_items')
-      .insert(itemsPayload);
+      const { error: itemsErr } = await supabase
+        .from('contractor_invoice_items')
+        .insert(itemsPayload);
 
-    if (itemsErr) throw itemsErr;
+      if (itemsErr) throw itemsErr;
+    }
+
+    const paid = Number(newInvoice.paid_amount) || 0;
+    const total = Number(newInvoice.total_amount) || 0;
+    const formatted = {
+      id: newInvoice.id,
+      invoiceNumber: newInvoice.invoice_number,
+      invoiceDate: newInvoice.invoice_date,
+      totalAmount: total,
+      paidAmount: paid,
+      remainingAmount: Math.max(0, total - paid),
+      currency: newInvoice.currency || 'EGP',
+      status: newInvoice.status,
+      approvedAt: newInvoice.approved_at,
+      approvedBy: null,
+      notes: newInvoice.notes,
+      contractorId: newInvoice.contractor_id,
+      contractor: newInvoice.contractor,
+      shipmentId: newInvoice.shipment_id,
+      shipment: newInvoice.shipment,
+      items: (newInvoice.items || []).map((it: any) => ({
+        id: it.id,
+        itemType: it.item_type,
+        description: it.description,
+        amount: Number(it.amount) || 0,
+        attachmentUrl: it.attachment_url,
+        createdAt: it.created_at,
+      })),
+      createdAt: newInvoice.created_at,
+      updatedAt: newInvoice.updated_at,
+    };
 
     return NextResponse.json({
       success: true,
-      message: 'تم تسجيل فاتورة المقاول بنجاح وهي قيد المراجعة',
-      invoice: newInvoice,
+      message: 'تم تسجيل فاتورة المقاول بنجاح — أضف البنود من ورقة الفاتورة',
+      invoice: formatted,
     });
   } catch (err: any) {
     console.error('Failed to create contractor invoice:', err);

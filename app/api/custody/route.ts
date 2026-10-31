@@ -240,7 +240,7 @@ export async function POST(req: NextRequest) {
           currency: item.currency,
           notes: `صرف عهدة نقدية للموظف: ${empName}_${empFingerprint} من خزنة ${treasury.name}${notes ? ` (${notes})` : ''}`,
           reference_number: refNo,
-          transaction_date: new Date().toISOString().split('T')[0],
+          transaction_date: new Date().toISOString(),
           created_by: user.id,
         })
         .select()
