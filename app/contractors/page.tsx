@@ -10,7 +10,9 @@ import {
   CardSkeleton,
   TableSkeleton,
 } from '@/components/ui/Skeleton';
-import ContractorInvoiceSheet from '@/components/contractors/ContractorInvoiceSheet';
+import ContractorInvoiceSheet, {
+  type InvoiceSheetInvoice,
+} from '@/components/contractors/ContractorInvoiceSheet';
 import {
   Truck,
   Plus,
@@ -604,9 +606,22 @@ export default function ContractorsPage() {
     setIsInvoiceModalOpen(true);
   };
 
-  const handleInvoiceSheetUpdated = (updated: ContractorInvoice) => {
-    setViewingInvoice(updated);
-    setInvoices((prev) => prev.map((inv) => (inv.id === updated.id ? { ...inv, ...updated } : inv)));
+  const handleInvoiceSheetUpdated = (updated: InvoiceSheetInvoice) => {
+    setViewingInvoice((prev) => {
+      const merged = {
+        ...(prev && prev.id === updated.id ? prev : { createdAt: '' }),
+        ...updated,
+        status: updated.status as ContractorInvoice['status'],
+      } as ContractorInvoice;
+      return merged;
+    });
+    setInvoices((prev) =>
+      prev.map((inv) =>
+        inv.id === updated.id
+          ? ({ ...inv, ...updated, status: updated.status as ContractorInvoice['status'] } as ContractorInvoice)
+          : inv
+      )
+    );
   };
 
   const handleSaveInvoice = async (e: React.FormEvent) => {
@@ -1934,7 +1949,7 @@ export default function ContractorsPage() {
               canPay={canPay}
               onClose={() => setViewingInvoice(null)}
               onUpdated={handleInvoiceSheetUpdated}
-              onApprove={handleApproveInvoice}
+              onApprove={(inv) => handleApproveInvoice(inv as ContractorInvoice)}
               onPay={(inv) => {
                 setViewingInvoice(null);
                 handleOpenPayModal(inv as ContractorInvoice);

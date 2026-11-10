@@ -53,6 +53,7 @@ export interface InvoiceSheetInvoice {
     client?: { name: string } | null;
   };
   items?: InvoiceSheetItem[];
+  createdAt?: string;
 }
 
 type DraftItem = {
