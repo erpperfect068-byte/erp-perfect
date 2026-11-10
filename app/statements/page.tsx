@@ -26,15 +26,11 @@ import {
   Paperclip,
   CheckCircle2,
   XCircle,
-  TrendingDown
+  TrendingDown,
 } from 'lucide-react';
-
-interface Shipment {
-  id: string;
-  bolNumber: string | null;
-  containerCount: number | null;
-  acid: string | null;
-}
+import ClientStatementSheet, {
+  type SheetDeposit,
+} from '../../components/statements/ClientStatementSheet';
 
 interface Client {
   id: string;
@@ -44,6 +40,31 @@ interface Client {
 interface ClientGoodsItem {
   id: string;
   name: string;
+}
+
+interface Shipment {
+  id: string;
+  bolNumber: string | null;
+  containerCount: number | null;
+  portId?: string | null;
+  acid: string | null;
+  supplierName?: string | null;
+  declarationNumber46?: string | null;
+  arrivalDate?: string | null;
+  documentReceiptDate?: string | null;
+  invoiceNumber?: string | null;
+  clientItemId?: string | null;
+  port?: { id: string; name: string } | null;
+  clientItem?: ClientGoodsItem | null;
+}
+
+interface PricingPickOption {
+  source: 'clearance' | 'offer' | 'transport';
+  key: string;
+  label: string;
+  amount: number;
+  currency: string;
+  itemType: 'fee' | 'expense';
 }
 
 interface StatementItem {
@@ -66,6 +87,7 @@ interface Statement {
   id: string;
   shipmentId: string;
   statementDate: string;
+  statementNumber?: number | null;
   currency: string;
   totalAmount: string;
   shipment: Shipment | null;
@@ -74,12 +96,18 @@ interface Statement {
 }
 
 export default function StatementsPage() {
-  const { getAuthToken } = useAuth();
+  const { getAuthToken, dbUser } = useAuth();
   const { showToast } = useToast();
   const [statements, setStatements] = useState<Statement[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatement, setSelectedStatement] = useState<Statement | null>(null);
+  const [isSheetOpen, setIsSheetOpen] = useState(false);
+  const [sheetDeposits, setSheetDeposits] = useState<SheetDeposit[]>([]);
+  const [sheetClientItems, setSheetClientItems] = useState<ClientGoodsItem[]>([]);
+  const [sheetUsdRate, setSheetUsdRate] = useState('48.5');
+  const [sheetEurRate, setSheetEurRate] = useState('52.3');
+  const [loadingSheet, setLoadingSheet] = useState(false);
 
   // Modal controls
   const [isAddItemOpen, setIsAddItemOpen] = useState(false);
@@ -97,6 +125,13 @@ export default function StatementsPage() {
   const [clientItemId, setClientItemId] = useState('');
   const [clientGoodsItems, setClientGoodsItems] = useState<ClientGoodsItem[]>([]);
   const [loadingClientItems, setLoadingClientItems] = useState(false);
+  const [pricingPicker, setPricingPicker] = useState<PricingPickOption[]>([]);
+  const [selectedPricingKey, setSelectedPricingKey] = useState('');
+  const [transportUnitKey, setTransportUnitKey] = useState('20ft');
+  const [applyingPricing, setApplyingPricing] = useState(false);
+  const [isSuggestModalOpen, setIsSuggestModalOpen] = useState(false);
+  const [pendingSuggestions, setPendingSuggestions] = useState<PricingPickOption[]>([]);
+  const [selectedSuggestionKeys, setSelectedSuggestionKeys] = useState<string[]>([]);
 
   // Form: Reverse Item
   const [reversalReason, setReversalReason] = useState('');
@@ -142,10 +177,108 @@ export default function StatementsPage() {
     else if (currency === 'EUR') setRate('52.3000');
   }, [currency]);
 
+  const openStatementSheet = async (stmt?: Statement | null) => {
+    const target = stmt || selectedStatement;
+    if (!target) return;
+    setSelectedStatement(target);
+    setIsSheetOpen(true);
+    setSheetDeposits([]);
+    setSheetClientItems([]);
+    setLoadingSheet(true);
+    try {
+      const token = await getAuthToken();
+      const tasks: Promise<void>[] = [];
+
+      tasks.push(
+        (async () => {
+          try {
+            const res = await fetch(`/api/deposits?statementId=${encodeURIComponent(target.id)}`, {
+              headers: { Authorization: `Bearer ${token}` },
+            });
+            if (res.ok) {
+              const data = await res.json();
+              setSheetDeposits(
+                (Array.isArray(data) ? data : []).map((d: any) => ({
+                  id: d.id,
+                  amount: d.amount,
+                  currency: d.currency || 'EGP',
+                  exchangeRateAtTransaction: d.exchangeRateAtTransaction ?? 1,
+                  depositDate: d.depositDate || null,
+                  receiptNumber: d.receiptNumber || null,
+                }))
+              );
+            }
+          } catch {
+            /* deposits permission may be missing — sheet still opens */
+          }
+        })()
+      );
+
+      if (target.client?.id) {
+        tasks.push(
+          (async () => {
+            const res = await fetch(`/api/clients/${target.client!.id}`, {
+              headers: { Authorization: `Bearer ${token}` },
+            });
+            if (res.ok) {
+              const data = await res.json();
+              const client = data.client || data;
+              setSheetClientItems(
+                (client.items || []).map((it: any) => ({ id: it.id, name: it.name }))
+              );
+            }
+          })()
+        );
+      }
+
+      await Promise.all(tasks);
+    } catch (err) {
+      console.error(err);
+      showToast('تعذر تحميل بيانات ورقة الكشف', 'warning');
+    } finally {
+      setLoadingSheet(false);
+    }
+  };
+
+  const handleSheetAddItem = async (payload: {
+    itemType: 'expense' | 'fee' | 'deposit_deduction';
+    description: string;
+    amount: number;
+    currency: string;
+    exchangeRateAtTransaction: number;
+    externalReceiptNumber?: string;
+  }) => {
+    if (!selectedStatement) return false;
+    try {
+      const token = await getAuthToken();
+      const res = await fetch('/api/statements', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          statementId: selectedStatement.id,
+          ...payload,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'فشل إدراج البند');
+      showToast('تم إضافة البند للكشف', 'success');
+      await loadStatements();
+      return true;
+    } catch (err: any) {
+      showToast(err.message || 'فشل إضافة البند', 'error');
+      return false;
+    }
+  };
+
   const openAddItemModal = async () => {
     setIsAddItemOpen(true);
     setClientItemId('');
     setClientGoodsItems([]);
+    setPricingPicker([]);
+    setSelectedPricingKey('');
 
     const clientId = selectedStatement?.client?.id;
     if (!clientId) return;
@@ -153,25 +286,140 @@ export default function StatementsPage() {
     try {
       setLoadingClientItems(true);
       const token = await getAuthToken();
-      const res = await fetch(`/api/clients/${clientId}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) {
-        showToast('تعذر تحميل أصناف العميل', 'warning');
-        return;
+      const [clientRes, pricingRes] = await Promise.all([
+        fetch(`/api/clients/${clientId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+        fetch(`/api/clients/${clientId}/contract-pricing`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            containerCount: selectedStatement?.shipment?.containerCount,
+            portId: selectedStatement?.shipment?.portId,
+            portName: selectedStatement?.shipment?.port?.name,
+            unitKey: transportUnitKey,
+            includeClearance: false,
+            includeTransport: false,
+            includeActiveOffers: false,
+          }),
+        }),
+      ]);
+
+      if (clientRes.ok) {
+        const data = await clientRes.json();
+        const client = data.client || data;
+        setClientGoodsItems(
+          (client.items || []).map((it: any) => ({ id: it.id, name: it.name }))
+        );
       }
-      const data = await res.json();
-      const client = data.client || data;
-      const items = (client.items || []).map((it: any) => ({
-        id: it.id,
-        name: it.name,
-      }));
-      setClientGoodsItems(items);
+
+      if (pricingRes.ok) {
+        const pdata = await pricingRes.json();
+        setPricingPicker(pdata.picker || []);
+      }
     } catch (err) {
       console.error(err);
-      showToast('تعذر تحميل أصناف العميل', 'error');
+      showToast('تعذر تحميل بيانات العميل/التسعير', 'error');
     } finally {
       setLoadingClientItems(false);
+    }
+  };
+
+  const applyPricingPick = (key: string) => {
+    setSelectedPricingKey(key);
+    const opt = pricingPicker.find((p) => `${p.source}:${p.key}` === key);
+    if (!opt) return;
+    setDescription(opt.label);
+    setAmount(String(opt.amount));
+    setCurrency(opt.currency || 'EGP');
+    setItemType(opt.itemType === 'fee' ? 'fee' : 'expense');
+  };
+
+  const handleSuggestContractPricing = async () => {
+    if (!selectedStatement?.client?.id) {
+      showToast('لا يوجد عميل مرتبط بهذا الكشف', 'warning');
+      return;
+    }
+    try {
+      setApplyingPricing(true);
+      const token = await getAuthToken();
+      const res = await fetch(`/api/clients/${selectedStatement.client.id}/contract-pricing`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          containerCount: selectedStatement.shipment?.containerCount,
+          portId: selectedStatement.shipment?.portId,
+          portName: selectedStatement.shipment?.port?.name,
+          unitKey: transportUnitKey,
+          includeClearance: true,
+          includeTransport: true,
+          includeActiveOffers: true,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'فشل اقتراح الأسعار');
+
+      const suggestions: PricingPickOption[] = data.suggestions || [];
+      if (suggestions.length === 0) {
+        showToast('لا توجد أسعار تعاقد منطبقة على هذه الشحنة — راجع تسعير العميل', 'warning');
+        return;
+      }
+      setPendingSuggestions(suggestions);
+      setSelectedSuggestionKeys(suggestions.map((s) => `${s.source}:${s.key}`));
+      setIsSuggestModalOpen(true);
+    } catch (err: any) {
+      showToast(err.message || 'فشل اقتراح أسعار التعاقد', 'error');
+    } finally {
+      setApplyingPricing(false);
+    }
+  };
+
+  const confirmApplySuggestions = async () => {
+    if (!selectedStatement) return;
+    const toApply = pendingSuggestions.filter((s) =>
+      selectedSuggestionKeys.includes(`${s.source}:${s.key}`)
+    );
+    if (toApply.length === 0) {
+      showToast('اختر بندًا واحدًا على الأقل', 'warning');
+      return;
+    }
+
+    try {
+      setApplyingPricing(true);
+      const token = await getAuthToken();
+      for (const line of toApply) {
+        const res = await fetch('/api/statements', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            statementId: selectedStatement.id,
+            itemType: line.itemType,
+            description: line.label,
+            amount: line.amount,
+            currency: line.currency || 'EGP',
+            exchangeRateAtTransaction: 1,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'فشل إدراج أحد البنود المقترحة');
+      }
+      showToast(`تم إدراج ${toApply.length} بند من أسعار التعاقد`, 'success');
+      setIsSuggestModalOpen(false);
+      setPendingSuggestions([]);
+      await loadStatements();
+    } catch (err: any) {
+      showToast(err.message || 'فشل تطبيق الأسعار', 'error');
+    } finally {
+      setApplyingPricing(false);
     }
   };
 
@@ -291,193 +539,64 @@ export default function StatementsPage() {
           </p>
         </div>
 
-        {/* Master Details Split Panel */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-          {/* Left panel: Statements list */}
-          <div className="lg:col-span-5 bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">
-            <h3 className="font-bold text-slate-900 text-base flex items-center gap-2 border-b border-slate-100 pb-3">
-              <FolderOpen className="h-5 w-5 text-indigo-600" />
-              <span>فواتير وكشوف الشحنات</span>
-            </h3>
+        {/* Statements list — opens paper sheet on click */}
+        <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4 max-w-4xl">
+          <h3 className="font-bold text-slate-900 text-base flex items-center gap-2 border-b border-slate-100 pb-3">
+            <FolderOpen className="h-5 w-5 text-indigo-600" />
+            <span>فواتير وكشوف الشحنات</span>
+          </h3>
 
-            <div className="relative">
-              <Search className="absolute right-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-              <input
-                type="text"
-                placeholder="البحث بالعميل أو بوليصة الشحن..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-3 pr-10 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none"
-              />
+          <div className="relative">
+            <Search className="absolute right-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+            <input
+              type="text"
+              placeholder="البحث بالعميل أو بوليصة الشحن..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-3 pr-10 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none"
+            />
+          </div>
+
+          {loading && statements.length === 0 ? (
+            <div className="h-32 bg-slate-50 animate-pulse rounded-xl"></div>
+          ) : filteredStatements.length === 0 ? (
+            <p className="text-xs text-slate-400 text-center py-6">لا توجد سجلات مطابقة.</p>
+          ) : (
+            <div className="space-y-2.5 overflow-y-auto max-h-[70vh] pr-1">
+              {filteredStatements.map((st) => {
+                const isSel = selectedStatement?.id === st.id && isSheetOpen;
+                return (
+                  <button
+                    key={st.id}
+                    type="button"
+                    disabled={loadingSheet}
+                    onClick={() => openStatementSheet(st)}
+                    className={`w-full p-4 rounded-xl text-right border transition-all duration-200 flex items-center justify-between gap-4 ${
+                      isSel
+                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-600/10'
+                        : 'bg-slate-50/60 hover:bg-slate-50 text-slate-800 border-slate-100'
+                    }`}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <span className={`text-[10px] font-bold block ${isSel ? 'text-indigo-200' : 'text-slate-400'}`}>
+                        بوليصة: {st.shipment?.bolNumber || 'لم تحدد'}
+                        {st.statementNumber != null ? ` · كشف #${st.statementNumber}` : ''}
+                      </span>
+                      <h4 className="font-bold text-sm truncate mt-1">{st.client?.name || 'عميل مجهول'}</h4>
+                    </div>
+                    <div className="text-left shrink-0">
+                      <span className={`text-xs block font-bold ${isSel ? 'text-indigo-100' : 'text-slate-400'}`}>
+                        المستحق الكلي:
+                      </span>
+                      <span className="text-sm font-black block mt-0.5">
+                        {parseFloat(st.totalAmount).toLocaleString()} EGP
+                      </span>
+                    </div>
+                  </button>
+                );
+              })}
             </div>
-
-            {loading && statements.length === 0 ? (
-              <div className="h-32 bg-slate-50 animate-pulse rounded-xl"></div>
-            ) : filteredStatements.length === 0 ? (
-              <p className="text-xs text-slate-400 text-center py-6">لا توجد سجلات مطابقة.</p>
-            ) : (
-              <div className="space-y-2.5 overflow-y-auto max-h-[60vh] pr-1">
-                {filteredStatements.map((st) => {
-                  const isSel = selectedStatement?.id === st.id;
-                  return (
-                    <button
-                      key={st.id}
-                      onClick={() => setSelectedStatement(st)}
-                      className={`w-full p-4 rounded-xl text-right border transition-all duration-200 flex items-center justify-between gap-4 ${
-                        isSel
-                          ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-600/10'
-                          : 'bg-slate-50/60 hover:bg-slate-50 text-slate-800 border-slate-100'
-                      }`}
-                    >
-                      <div className="min-w-0 flex-1">
-                        <span className={`text-[10px] font-bold block ${isSel ? 'text-indigo-200' : 'text-slate-400'}`}>
-                          بوليصة: {st.shipment?.bolNumber || 'لم تحدد'}
-                        </span>
-                        <h4 className="font-bold text-sm truncate mt-1">{st.client?.name || 'عميل مجهول'}</h4>
-                      </div>
-                      <div className="text-left shrink-0">
-                        <span className={`text-xs block font-bold ${isSel ? 'text-indigo-100' : 'text-slate-400'}`}>المستحق الكلي:</span>
-                        <span className="text-sm font-black block mt-0.5">
-                          {parseFloat(st.totalAmount).toLocaleString()} EGP
-                        </span>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          {/* Right panel: Selected statement details */}
-          <div className="lg:col-span-7 space-y-6">
-            {selectedStatement ? (
-              <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-6 animate-in fade-in slide-in-from-left-4 duration-200">
-                {/* Invoice Header */}
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-100 pb-5">
-                  <div>
-                    <span className="text-xs text-indigo-600 font-bold block">مستند المطالبة المالية الموحد</span>
-                    <h2 className="text-lg font-black text-slate-900 mt-0.5">{selectedStatement.client?.name}</h2>
-                    <p className="text-[11px] text-slate-400 mt-1">بوليصة الشحن: {selectedStatement.shipment?.bolNumber}</p>
-                  </div>
-
-                  <div className="flex gap-2">
-                    <button
-                      onClick={openAddItemModal}
-                      className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition-colors shadow-sm"
-                    >
-                      <Plus className="h-4.5 w-4.5" />
-                      إدراج قيد مالي جديد
-                    </button>
-                  </div>
-                </div>
-
-                {/* Ledger Items Table */}
-                <div className="space-y-3">
-                  <h3 className="text-sm font-bold text-slate-900">الحركات والبنود المسجلة بالبيان الجمركي:</h3>
-
-                  {selectedStatement.items.length === 0 ? (
-                    <div className="p-8 text-center bg-slate-50 border border-slate-100 rounded-2xl">
-                      <p className="text-xs text-slate-400 font-light">لا توجد حركات محاسبية مسجلة في كشف حساب هذه الشحنة بعد.</p>
-                    </div>
-                  ) : (
-                    <div className="border border-slate-100 rounded-2xl overflow-hidden divide-y divide-slate-100 text-xs">
-                      {selectedStatement.items.map((item) => {
-                        const isRev = item.isReversed;
-                        const isReversalType = item.itemType === 'reversal';
-
-                        const types: Record<string, { label: string; color: string }> = {
-                          expense: { label: 'مصروفات جمركية', color: 'bg-red-50 text-red-700 border-red-100' },
-                          fee: { label: 'أتعاب تخليص', color: 'bg-emerald-50 text-emerald-700 border-emerald-100' },
-                          deposit_deduction: { label: 'خصم أمانة', color: 'bg-blue-50 text-blue-700 border-blue-100' },
-                          reversal: { label: 'عكس محاسبي', color: 'bg-purple-50 text-purple-700 border-purple-100' },
-                        };
-
-                        const t = types[item.itemType] || { label: item.itemType, color: 'bg-slate-50 text-slate-700' };
-
-                        return (
-                          <div
-                            key={item.id}
-                            className={`p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-all duration-200 ${
-                              isRev ? 'bg-slate-100/40 text-slate-400 line-through' : 'bg-white'
-                            }`}
-                          >
-                            <div className="space-y-1.5 flex-1 min-w-0">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span className={`px-2 py-0.5 rounded-lg text-[10px] font-bold border ${t.color}`}>
-                                  {t.label}
-                                </span>
-                                {item.clientItem?.name && (
-                                  <span className="bg-indigo-50 text-indigo-700 border border-indigo-100 text-[10px] px-2 py-0.5 rounded-lg font-bold">
-                                    صنف: {item.clientItem.name}
-                                  </span>
-                                )}
-                                {item.externalReceiptNumber && (
-                                  <span className="bg-slate-100 text-slate-600 text-[10px] px-2 py-0.5 rounded-lg">
-                                    وصل: {item.externalReceiptNumber}
-                                  </span>
-                                )}
-                              </div>
-                              <p className={`font-semibold ${isRev ? 'text-slate-400' : 'text-slate-800'}`}>
-                                {item.description}
-                              </p>
-                              {item.reversalReason && (
-                                <p className="text-[10px] text-purple-600 font-bold">سبب العكس: {item.reversalReason}</p>
-                              )}
-                            </div>
-
-                            <div className="flex items-center justify-between sm:justify-end gap-6 shrink-0">
-                              <div className="text-left">
-                                <span className="text-[10px] text-slate-400 block font-light">القيمة بالعملة الأصلية:</span>
-                                <span className="font-bold text-slate-800 block">
-                                  {parseFloat(item.amount).toLocaleString()} {item.currency}
-                                </span>
-                                {item.currency !== 'EGP' && (
-                                  <span className="text-[9px] text-slate-400 block font-medium">
-                                    سعر الصرف: {parseFloat(item.exchangeRateAtTransaction).toFixed(2)} EGP
-                                  </span>
-                                )}
-                              </div>
-
-                              {/* Action buttons (Reverse logic) */}
-                              {!isRev && !isReversalType && (
-                                <button
-                                  onClick={() => triggerReverseModal(item)}
-                                  className="text-slate-400 hover:text-purple-600 p-2 hover:bg-purple-50 rounded-xl transition-all"
-                                  title="عكس القيد ماليًا"
-                                >
-                                  <Undo2 className="h-4.5 w-4.5" />
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-
-                {/* Footer totals */}
-                <div className="p-5 bg-indigo-50 border border-indigo-100/50 rounded-2xl flex items-center justify-between gap-4">
-                  <div>
-                    <span className="text-xs text-indigo-600 font-bold block">إجمالي كشف الحساب المترجم:</span>
-                    <span className="text-xs text-indigo-400 block font-light">مترجم بالكامل للجنيه المصري بسعر حركة الصرف</span>
-                  </div>
-                  <div className="text-left">
-                    <span className="text-2xl font-black text-indigo-950">
-                      {parseFloat(selectedStatement.totalAmount).toLocaleString('ar-EG', { minimumFractionDigits: 2 })}
-                    </span>
-                    <span className="text-xs text-indigo-600 font-bold mr-1">جنيه مصري</span>
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div className="bg-white border border-slate-200 rounded-2xl p-12 text-center h-[50vh] flex flex-col justify-center items-center">
-                <FileText className="h-12 w-12 text-slate-300" />
-                <h3 className="text-slate-800 font-bold mt-4">اختر ملف مطالبة مالية</h3>
-                <p className="text-xs text-slate-400 font-light mt-1">اختر مطالبة من القائمة لاستعراض بنودها وتفاصيل قيود الخزينة المرتبطة بها.</p>
-              </div>
-            )}
-          </div>
+          )}
         </div>
 
         {/* Add Statement Item Modal */}
@@ -503,6 +622,25 @@ export default function StatementsPage() {
                     <option value="fee">رسوم أتعاب تخليص (تُودع في الخزينة لصالح المكتب)</option>
                     <option value="deposit_deduction">خصم تسوية من أمانة العميل</option>
                   </select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-700">من أسعار تعاقد العميل (اختياري)</label>
+                  <select
+                    value={selectedPricingKey}
+                    onChange={(e) => applyPricingPick(e.target.value)}
+                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm"
+                  >
+                    <option value="">— اختر سعرًا جاهزًا لملء الوصف والمبلغ —</option>
+                    {pricingPicker.map((p) => (
+                      <option key={`${p.source}:${p.key}`} value={`${p.source}:${p.key}`}>
+                        {p.label} — {p.amount.toLocaleString('ar-EG')} {p.currency}
+                      </option>
+                    ))}
+                  </select>
+                  {pricingPicker.length === 0 && (
+                    <p className="text-[10px] text-slate-400">لا توجد أسعار محفوظة لهذا العميل بعد.</p>
+                  )}
                 </div>
 
                 <div className="space-y-1.5">
@@ -627,7 +765,7 @@ export default function StatementsPage() {
 
         {/* Reversal Confirmation Modal */}
         {isReverseOpen && itemToReverse && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
             <div className="bg-white rounded-3xl max-w-md w-full p-6 md:p-8 border border-slate-100 shadow-2xl">
               <div className="flex items-center justify-between border-b border-slate-100 pb-4">
                 <h3 className="text-lg font-bold text-slate-900 flex items-center gap-1.5">
@@ -680,6 +818,90 @@ export default function StatementsPage() {
               </form>
             </div>
           </div>
+        )}
+
+        {isSuggestModalOpen && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+            <div className="bg-white rounded-3xl max-w-md w-full p-6 border border-slate-100 shadow-2xl">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                <h3 className="text-base font-black text-slate-900">بنود مقترحة من تعاقد العميل</h3>
+                <button type="button" onClick={() => setIsSuggestModalOpen(false)} className="text-slate-400">
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+              <p className="text-[11px] text-slate-500 mt-3 mb-3">
+                اختر البنود المراد إدراجها في الكشف (حسب عدد الحاويات والميناء ونوع النقل المحدد).
+              </p>
+              <div className="space-y-2 max-h-72 overflow-y-auto">
+                {pendingSuggestions.map((s) => {
+                  const k = `${s.source}:${s.key}`;
+                  return (
+                    <label
+                      key={k}
+                      className="flex items-start gap-2 p-3 rounded-xl border border-slate-200 bg-slate-50 cursor-pointer"
+                    >
+                      <input
+                        type="checkbox"
+                        className="mt-0.5"
+                        checked={selectedSuggestionKeys.includes(k)}
+                        onChange={(e) => {
+                          setSelectedSuggestionKeys((prev) =>
+                            e.target.checked ? [...prev, k] : prev.filter((x) => x !== k)
+                          );
+                        }}
+                      />
+                      <span className="flex-1 min-w-0">
+                        <span className="text-xs font-bold text-slate-800 block">{s.label}</span>
+                        <span className="text-[11px] font-mono font-black text-indigo-600">
+                          {s.amount.toLocaleString('ar-EG')} {s.currency}
+                        </span>
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+              <div className="flex justify-end gap-2 mt-4 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsSuggestModalOpen(false)}
+                  className="px-4 py-2 rounded-xl bg-slate-100 text-xs font-bold"
+                >
+                  إلغاء
+                </button>
+                <button
+                  type="button"
+                  disabled={applyingPricing}
+                  onClick={confirmApplySuggestions}
+                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold disabled:opacity-60"
+                >
+                  {applyingPricing ? 'جاري الإدراج...' : 'تثبيت البنود في الكشف'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {isSheetOpen && selectedStatement && (
+          <ClientStatementSheet
+            statement={selectedStatement}
+            clientItems={sheetClientItems}
+            deposits={sheetDeposits}
+            accountantName={dbUser?.name || dbUser?.email || null}
+            usdRate={sheetUsdRate}
+            eurRate={sheetEurRate}
+            canAddItems
+            transportUnitKey={transportUnitKey}
+            onTransportUnitChange={setTransportUnitKey}
+            applyingPricing={applyingPricing}
+            onSuggestPricing={handleSuggestContractPricing}
+            onReverseItem={(item) => {
+              const full = selectedStatement.items.find((i) => i.id === item.id);
+              if (full) triggerReverseModal(full);
+            }}
+            onClose={() => setIsSheetOpen(false)}
+            onAddItem={handleSheetAddItem}
+            showToast={showToast}
+          />
         )}
       </div>
     </SidebarLayout>

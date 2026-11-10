@@ -11,26 +11,52 @@ export async function GET(req: NextRequest) {
 
     const { data: statementsList, error: dbError } = await supabase
       .from('statements')
-      .select('*, shipment:shipments(*, client:clients(*)), items:statement_items(*, clientItem:client_items(id, name))')
+      .select(
+        '*, shipment:shipments(*, client:clients(*), port:ports(id, name), clientItem:client_items(id, name)), items:statement_items(*, clientItem:client_items(id, name))'
+      )
       .eq('company_id', (user as any).company_id)
       .order('created_at', { ascending: false });
 
     if (dbError) throw dbError;
 
-    const formattedStatements = (statementsList || []).map((stmt: any) => {
-      const shipment = stmt.shipment ? {
-        ...stmt.shipment,
-        clientId: stmt.shipment.client_id,
-        invoiceNumber: stmt.shipment.invoice_number,
-        acid: stmt.shipment.acid,
-        declarationNumber46: stmt.shipment.declaration_number_46,
-      } : null;
+    // Assign stable human display numbers by chronological creation order
+    const chronoAsc = [...(statementsList || [])].sort(
+      (a: any, b: any) =>
+        new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()
+    );
+    const numberById = new Map<string, number>();
+    chronoAsc.forEach((s: any, idx: number) => numberById.set(s.id, idx + 1));
 
-      const client = stmt.shipment?.client ? {
-        ...stmt.shipment.client,
-        contactPerson: stmt.shipment.client.contact_person,
-        taxNumber: stmt.shipment.client.tax_number,
-      } : null;
+    const formattedStatements = (statementsList || []).map((stmt: any) => {
+      const shipment = stmt.shipment
+        ? {
+            ...stmt.shipment,
+            id: stmt.shipment.id,
+            clientId: stmt.shipment.client_id,
+            clientItemId: stmt.shipment.client_item_id || null,
+            invoiceNumber: stmt.shipment.invoice_number,
+            supplierName: stmt.shipment.supplier_name || null,
+            bolNumber: stmt.shipment.bol_number,
+            containerCount: stmt.shipment.container_count,
+            portId: stmt.shipment.port_id,
+            acid: stmt.shipment.acid,
+            declarationNumber46: stmt.shipment.declaration_number_46,
+            arrivalDate: stmt.shipment.arrival_date || null,
+            documentReceiptDate: stmt.shipment.document_receipt_date || null,
+            port: stmt.shipment.port || null,
+            clientItem: stmt.shipment.clientItem
+              ? { id: stmt.shipment.clientItem.id, name: stmt.shipment.clientItem.name }
+              : null,
+          }
+        : null;
+
+      const client = stmt.shipment?.client
+        ? {
+            ...stmt.shipment.client,
+            contactPerson: stmt.shipment.client.contact_person,
+            taxNumber: stmt.shipment.client.tax_number,
+          }
+        : null;
 
       const items = (stmt.items || []).map((item: any) => ({
         ...item,
@@ -55,6 +81,7 @@ export async function GET(req: NextRequest) {
         ...stmt,
         shipmentId: stmt.shipment_id,
         statementDate: stmt.statement_date,
+        statementNumber: numberById.get(stmt.id) || null,
         totalAmount: parseFloat(Number(stmt.total_amount || 0).toFixed(2)),
         currency: stmt.currency || 'EGP',
         createdAt: stmt.created_at,

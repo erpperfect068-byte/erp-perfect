@@ -20,6 +20,11 @@ import {
   Trash2,
   Pencil,
 } from 'lucide-react';
+import ClientContractPricingEditor, {
+  emptyContractDraft,
+  saveContractPricing,
+  type ContractPricingDraft,
+} from '@/components/clients/ClientContractPricingEditor';
 
 interface ClientItem {
   id: string;
@@ -46,13 +51,8 @@ interface Client {
   pricing: ClientPricing[];
 }
 
-type PricingRule = { serviceName: string; price: number; currency: string };
-
 const EMPTY_PRICING_INPUT = {
   newItemInput: '',
-  newServiceName: '',
-  newServicePrice: '' as number | '',
-  newServiceCurrency: 'EGP',
 };
 
 export default function ClientsPage() {
@@ -83,10 +83,7 @@ export default function ClientsPage() {
   const [customItems, setCustomItems] = useState<string[]>([]);
   const [newItemInput, setNewItemInput] = useState('');
 
-  const [pricingRules, setPricingRules] = useState<PricingRule[]>([]);
-  const [newServiceName, setNewServiceName] = useState('');
-  const [newServicePrice, setNewServicePrice] = useState<number | ''>('');
-  const [newServiceCurrency, setNewServiceCurrency] = useState('EGP');
+  const [contractDraft, setContractDraft] = useState<ContractPricingDraft>(emptyContractDraft());
 
   async function loadClients() {
     setLoading(true);
@@ -115,9 +112,6 @@ export default function ClientsPage() {
 
   const resetDraftInputs = () => {
     setNewItemInput(EMPTY_PRICING_INPUT.newItemInput);
-    setNewServiceName(EMPTY_PRICING_INPUT.newServiceName);
-    setNewServicePrice(EMPTY_PRICING_INPUT.newServicePrice);
-    setNewServiceCurrency(EMPTY_PRICING_INPUT.newServiceCurrency);
   };
 
   const fillFormFromClient = (c: Client) => {
@@ -129,13 +123,7 @@ export default function ClientsPage() {
     setTaxNumber(c.taxNumber || '');
     setNotes(c.notes || '');
     setCustomItems((c.items || []).map((i) => i.name));
-    setPricingRules(
-      (c.pricing || []).map((p) => ({
-        serviceName: p.serviceName,
-        price: Number(p.price) || 0,
-        currency: p.currency || 'EGP',
-      }))
-    );
+    setContractDraft(emptyContractDraft());
     resetDraftInputs();
   };
 
@@ -148,7 +136,7 @@ export default function ClientsPage() {
     setTaxNumber('');
     setNotes('');
     setCustomItems([]);
-    setPricingRules([]);
+    setContractDraft(emptyContractDraft());
     resetDraftInputs();
   };
 
@@ -164,11 +152,61 @@ export default function ClientsPage() {
     setIsModalOpen(true);
   };
 
-  const handleOpenEditModal = (c: Client) => {
+  const loadContractDraftForClient = async (clientId: string) => {
+    try {
+      const token = await getAuthToken();
+      const res = await fetch(`/api/clients/${clientId}/contract-pricing`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'فشل تحميل التسعير');
+      setContractDraft({
+        meta: {
+          effectiveDate: data.meta?.effectiveDate ? String(data.meta.effectiveDate).slice(0, 10) : '',
+          durationLabel: data.meta?.durationLabel || 'عام من تاريخه',
+          contractType: data.meta?.contractType || 'clearance_transport',
+          coveredPorts: data.meta?.coveredPorts || 'الإسكندرية / السخنة',
+        },
+        clearance: (data.clearance || []).map((r: any) => ({
+          tierKey: r.tierKey,
+          label: r.label,
+          amount: r.amount ?? '',
+          currency: r.currency || 'EGP',
+          isActive: r.isActive !== false,
+        })),
+        offers: (data.offers || []).map((r: any) => ({
+          offerKey: r.offerKey,
+          label: r.label,
+          customLabel: r.customLabel || '',
+          amount: r.amount ?? '',
+          currency: r.currency || 'EGP',
+          isActive: !!r.isActive,
+          sortOrder: r.sortOrder ?? 0,
+          isCustom: !!r.isCustom,
+        })),
+        transport: (data.transport || []).map((r: any) => ({
+          portKey: r.portKey,
+          unitKey: r.unitKey,
+          label: r.label,
+          customLabel: r.customLabel || '',
+          amount: r.amount ?? '',
+          currency: r.currency || 'EGP',
+          isActive: r.isActive !== false,
+          isCustom: !!r.isCustom,
+        })),
+      });
+    } catch (err: any) {
+      showToast(err.message || 'تعذر تحميل تعاقد التسعير', 'warning');
+      setContractDraft(emptyContractDraft());
+    }
+  };
+
+  const handleOpenEditModal = async (c: Client) => {
     if (clientDraftKey !== c.id) {
       setEditingClient(c);
       fillFormFromClient(c);
       setClientDraftKey(c.id);
+      await loadContractDraftForClient(c.id);
     } else {
       setEditingClient(c);
     }
@@ -188,25 +226,6 @@ export default function ClientsPage() {
 
   const handleRemoveItem = (index: number) => {
     setCustomItems(customItems.filter((_, idx) => idx !== index));
-  };
-
-  const handleAddPricing = () => {
-    if (newServiceName.trim() && newServicePrice !== '') {
-      setPricingRules([
-        ...pricingRules,
-        {
-          serviceName: newServiceName.trim(),
-          price: Number(newServicePrice),
-          currency: newServiceCurrency,
-        },
-      ]);
-      setNewServiceName('');
-      setNewServicePrice('');
-    }
-  };
-
-  const handleRemovePricing = (index: number) => {
-    setPricingRules(pricingRules.filter((_, idx) => idx !== index));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -230,7 +249,7 @@ export default function ClientsPage() {
         taxNumber,
         notes,
         items: customItems,
-        pricing: pricingRules,
+        pricing: [],
       };
 
       const res = editingClient
@@ -254,7 +273,12 @@ export default function ClientsPage() {
       const errData = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(errData.error || 'فشل حفظ بيانات العميل');
 
-      showToast(editingClient ? 'تم تحديث بيانات العميل بنجاح' : 'تم تسجيل العميل بنجاح', 'success');
+      const savedId = editingClient?.id || errData.id || errData.client?.id;
+      if (savedId) {
+        await saveContractPricing(savedId, contractDraft, token);
+      }
+
+      showToast(editingClient ? 'تم تحديث بيانات العميل والتعاقد بنجاح' : 'تم تسجيل العميل والتعاقد بنجاح', 'success');
       setIsModalOpen(false);
       setClientDraftKey(null);
       setEditingClient(null);
@@ -356,12 +380,10 @@ export default function ClientsPage() {
       },
       {
         id: 'pricing',
-        header: 'أسعار',
-        className: 'w-16 text-center',
-        cell: (row) => (
-          <span className="text-xs font-bold text-slate-700 tabular-nums">
-            {(row.pricing || []).length}
-          </span>
+        header: 'تعاقد',
+        className: 'w-20 text-center',
+        cell: () => (
+          <span className="text-[10px] font-bold text-indigo-600">تخليص / نقل</span>
         ),
       },
     ],
@@ -547,26 +569,13 @@ export default function ClientsPage() {
                 </div>
 
                 <div>
-                  <span className="text-xs font-bold text-slate-500 block mb-2">اتفاقيات التسعير</span>
-                  {(viewingClient.pricing || []).length > 0 ? (
-                    <div className="space-y-2">
-                      {viewingClient.pricing.map((priceRule) => (
-                        <div
-                          key={priceRule.id}
-                          className="p-2.5 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-between gap-2"
-                        >
-                          <span className="text-xs text-slate-700 font-medium truncate">
-                            {priceRule.serviceName}
-                          </span>
-                          <span className="text-xs font-black text-indigo-600 shrink-0">
-                            {parseFloat(String(priceRule.price)).toLocaleString('ar-EG')} {priceRule.currency}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-xs text-slate-400">لا توجد اتفاقيات تسعير</p>
-                  )}
+                  <span className="text-xs font-bold text-slate-500 block mb-2">تعاقد التسعير</span>
+                  <ClientContractPricingEditor
+                    clientId={viewingClient.id}
+                    getAuthToken={getAuthToken}
+                    showToast={showToast}
+                    readOnly
+                  />
                 </div>
 
                 {viewingClient.notes && (
@@ -704,69 +713,16 @@ export default function ClientsPage() {
                   </div>
 
                   <div className="space-y-3 border-t border-slate-100 pt-5">
-                    <span className="text-sm font-bold text-slate-900 block">اتفاقية تسعير رسوم الخدمات (اختياري):</span>
-                    <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
-                      <div className="sm:col-span-5">
-                        <input
-                          type="text"
-                          placeholder="اسم الخدمة (مثال: أتعاب التخليص)"
-                          value={newServiceName}
-                          onChange={(e) => setNewServiceName(e.target.value)}
-                          className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                        />
-                      </div>
-                      <div className="sm:col-span-3">
-                        <input
-                          type="number"
-                          placeholder="السعر"
-                          value={newServicePrice}
-                          onChange={(e) => setNewServicePrice(e.target.value !== '' ? Number(e.target.value) : '')}
-                          className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                        />
-                      </div>
-                      <div className="sm:col-span-2">
-                        <select
-                          value={newServiceCurrency}
-                          onChange={(e) => setNewServiceCurrency(e.target.value)}
-                          className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                        >
-                          <option value="EGP">EGP</option>
-                          <option value="USD">USD</option>
-                          <option value="EUR">EUR</option>
-                        </select>
-                      </div>
-                      <div className="sm:col-span-2">
-                        <button
-                          type="button"
-                          onClick={handleAddPricing}
-                          className="w-full bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold py-2 rounded-xl text-sm flex items-center justify-center gap-1"
-                        >
-                          <PlusCircle className="h-4 w-4" /> أضف
-                        </button>
-                      </div>
-                    </div>
-                    <div className="space-y-2 mt-2">
-                      {pricingRules.map((rule, idx) => (
-                        <div
-                          key={`${rule.serviceName}-${idx}`}
-                          className="flex items-center justify-between p-2 rounded-xl bg-slate-50 border border-slate-100 text-xs"
-                        >
-                          <span className="font-semibold">{rule.serviceName}</span>
-                          <div className="flex items-center gap-3">
-                            <span className="font-black text-indigo-600">
-                              {rule.price.toLocaleString('ar-EG')} {rule.currency}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => handleRemovePricing(idx)}
-                              className="text-red-500 hover:text-red-700"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
+                    <span className="text-sm font-bold text-slate-900 block">
+                      تعاقد التسعير الموحّد (تخليص / عروض / نقل)
+                    </span>
+                    <ClientContractPricingEditor
+                      key={editingClient?.id || 'create'}
+                      getAuthToken={getAuthToken}
+                      showToast={showToast}
+                      value={contractDraft}
+                      onChange={setContractDraft}
+                    />
                   </div>
 
                   <div className="space-y-1.5 border-t border-slate-100 pt-5">

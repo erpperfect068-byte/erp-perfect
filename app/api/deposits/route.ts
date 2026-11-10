@@ -25,11 +25,23 @@ export async function GET(req: NextRequest) {
       return forbiddenResponse('غير مصرح لك بعرض أمانات وودائع العملاء');
     }
 
-    const { data: depositsList, error: dbError } = await supabase
+    const statementIdFilter = req.nextUrl.searchParams.get('statementId');
+    const clientIdFilter = req.nextUrl.searchParams.get('clientId');
+
+    let query = supabase
       .from('client_deposits')
       .select('*, client:clients(*), statement:statements(*, shipment:shipments(*))')
       .eq('company_id', (user as any).company_id)
       .order('created_at', { ascending: false });
+
+    if (statementIdFilter) {
+      query = query.eq('statement_id', statementIdFilter);
+    }
+    if (clientIdFilter) {
+      query = query.eq('client_id', clientIdFilter);
+    }
+
+    const { data: depositsList, error: dbError } = await query;
 
     if (dbError) throw dbError;
 

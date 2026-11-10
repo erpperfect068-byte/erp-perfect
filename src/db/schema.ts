@@ -67,13 +67,70 @@ export const clientItems = pgTable('client_items', {
   createdBy: uuid('created_by').references(() => users.id),
 });
 
-// 4. Client Pricing Table
+// 4. Client Pricing Table (legacy flat service pricing — kept for compatibility)
 export const clientPricing = pgTable('client_pricing', {
   id: uuid('id').primaryKey().defaultRandom(),
   clientId: uuid('client_id').notNull().references(() => clients.id, { onDelete: 'cascade' }),
   serviceName: text('service_name').notNull(), // Service/Fee type
   price: numeric('price', { precision: 18, scale: 2 }).notNull(),
   currency: text('currency').notNull().default('EGP'), // EGP, USD, EUR
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  createdBy: uuid('created_by').references(() => users.id),
+});
+
+// 4b. Client contract pricing (unified PDF-style rates)
+export const clientContractMeta = pgTable('client_contract_meta', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  clientId: uuid('client_id').notNull().unique().references(() => clients.id, { onDelete: 'cascade' }),
+  companyId: uuid('company_id'),
+  effectiveDate: timestamp('effective_date', { withTimezone: false }),
+  durationLabel: text('duration_label'),
+  contractType: text('contract_type').notNull().default('clearance_transport'),
+  coveredPorts: text('covered_ports'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  createdBy: uuid('created_by').references(() => users.id),
+});
+
+export const clientClearanceRates = pgTable('client_clearance_rates', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  clientId: uuid('client_id').notNull().references(() => clients.id, { onDelete: 'cascade' }),
+  companyId: uuid('company_id'),
+  tierKey: text('tier_key').notNull(),
+  amount: numeric('amount', { precision: 18, scale: 2 }),
+  currency: text('currency').notNull().default('EGP'),
+  isActive: boolean('is_active').notNull().default(true),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  createdBy: uuid('created_by').references(() => users.id),
+});
+
+export const clientOfferRates = pgTable('client_offer_rates', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  clientId: uuid('client_id').notNull().references(() => clients.id, { onDelete: 'cascade' }),
+  companyId: uuid('company_id'),
+  offerKey: text('offer_key').notNull(),
+  customLabel: text('custom_label'),
+  amount: numeric('amount', { precision: 18, scale: 2 }),
+  currency: text('currency').notNull().default('EGP'),
+  isActive: boolean('is_active').notNull().default(true),
+  sortOrder: integer('sort_order').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  createdBy: uuid('created_by').references(() => users.id),
+});
+
+export const clientTransportRates = pgTable('client_transport_rates', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  clientId: uuid('client_id').notNull().references(() => clients.id, { onDelete: 'cascade' }),
+  companyId: uuid('company_id'),
+  portKey: text('port_key').notNull(),
+  unitKey: text('unit_key').notNull(),
+  customLabel: text('custom_label'),
+  amount: numeric('amount', { precision: 18, scale: 2 }),
+  currency: text('currency').notNull().default('EGP'),
+  isActive: boolean('is_active').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   createdBy: uuid('created_by').references(() => users.id),
