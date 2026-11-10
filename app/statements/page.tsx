@@ -41,6 +41,11 @@ interface Client {
   name: string;
 }
 
+interface ClientGoodsItem {
+  id: string;
+  name: string;
+}
+
 interface StatementItem {
   id: string;
   itemType: 'expense' | 'fee' | 'deposit_deduction' | 'reversal';
@@ -53,6 +58,8 @@ interface StatementItem {
   isReversed: boolean;
   reversalReason: string | null;
   createdAt: string;
+  clientItemId?: string | null;
+  clientItem?: ClientGoodsItem | null;
 }
 
 interface Statement {
@@ -87,6 +94,9 @@ export default function StatementsPage() {
   const [rate, setRate] = useState('1.0000');
   const [receiptNo, setReceiptNo] = useState('');
   const [attachment, setAttachment] = useState('');
+  const [clientItemId, setClientItemId] = useState('');
+  const [clientGoodsItems, setClientGoodsItems] = useState<ClientGoodsItem[]>([]);
+  const [loadingClientItems, setLoadingClientItems] = useState(false);
 
   // Form: Reverse Item
   const [reversalReason, setReversalReason] = useState('');
@@ -132,10 +142,47 @@ export default function StatementsPage() {
     else if (currency === 'EUR') setRate('52.3000');
   }, [currency]);
 
+  const openAddItemModal = async () => {
+    setIsAddItemOpen(true);
+    setClientItemId('');
+    setClientGoodsItems([]);
+
+    const clientId = selectedStatement?.client?.id;
+    if (!clientId) return;
+
+    try {
+      setLoadingClientItems(true);
+      const token = await getAuthToken();
+      const res = await fetch(`/api/clients/${clientId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        showToast('تعذر تحميل أصناف العميل', 'warning');
+        return;
+      }
+      const data = await res.json();
+      const client = data.client || data;
+      const items = (client.items || []).map((it: any) => ({
+        id: it.id,
+        name: it.name,
+      }));
+      setClientGoodsItems(items);
+    } catch (err) {
+      console.error(err);
+      showToast('تعذر تحميل أصناف العميل', 'error');
+    } finally {
+      setLoadingClientItems(false);
+    }
+  };
+
   const handleAddItem = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedStatement || !description || !amount) {
+    if (!selectedStatement || !amount) {
       showToast('يرجى ملء جميع الحقول المطلوبة', 'warning');
+      return;
+    }
+    if (!description.trim() && !clientItemId) {
+      showToast('اختر صنف بضاعة العميل أو أدخل وصف الحركة', 'warning');
       return;
     }
 
@@ -156,7 +203,8 @@ export default function StatementsPage() {
           currency,
           exchangeRateAtTransaction: parseFloat(rate),
           externalReceiptNumber: receiptNo || undefined,
-          attachmentPath: attachment || undefined
+          attachmentPath: attachment || undefined,
+          clientItemId: clientItemId || undefined,
         })
       });
 
@@ -167,6 +215,7 @@ export default function StatementsPage() {
         setDescription('');
         setAmount('');
         setReceiptNo('');
+        setClientItemId('');
         setAttachment('');
         // Reload
         loadStatements();
@@ -313,7 +362,7 @@ export default function StatementsPage() {
 
                   <div className="flex gap-2">
                     <button
-                      onClick={() => setIsAddItemOpen(true)}
+                      onClick={openAddItemModal}
                       className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition-colors shadow-sm"
                     >
                       <Plus className="h-4.5 w-4.5" />
@@ -353,10 +402,15 @@ export default function StatementsPage() {
                             }`}
                           >
                             <div className="space-y-1.5 flex-1 min-w-0">
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-2 flex-wrap">
                                 <span className={`px-2 py-0.5 rounded-lg text-[10px] font-bold border ${t.color}`}>
                                   {t.label}
                                 </span>
+                                {item.clientItem?.name && (
+                                  <span className="bg-indigo-50 text-indigo-700 border border-indigo-100 text-[10px] px-2 py-0.5 rounded-lg font-bold">
+                                    صنف: {item.clientItem.name}
+                                  </span>
+                                )}
                                 {item.externalReceiptNumber && (
                                   <span className="bg-slate-100 text-slate-600 text-[10px] px-2 py-0.5 rounded-lg">
                                     وصل: {item.externalReceiptNumber}
@@ -452,15 +506,45 @@ export default function StatementsPage() {
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-slate-700">بيان ووصف الحركة بالتفصيل *</label>
+                  <label className="text-xs font-bold text-slate-700">صنف بضاعة العميل</label>
+                  <select
+                    value={clientItemId}
+                    onChange={(e) => setClientItemId(e.target.value)}
+                    disabled={loadingClientItems || !selectedStatement.client?.id}
+                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm disabled:opacity-50"
+                  >
+                    <option value="">
+                      {loadingClientItems
+                        ? 'جاري تحميل الأصناف...'
+                        : clientGoodsItems.length === 0
+                          ? 'لا توجد أصناف مسجلة لهذا العميل'
+                          : '— اختر صنف البضاعة —'}
+                    </option>
+                    {clientGoodsItems.map((it) => (
+                      <option key={it.id} value={it.id}>
+                        {it.name}
+                      </option>
+                    ))}
+                  </select>
+                  {!loadingClientItems && clientGoodsItems.length === 0 && (
+                    <p className="text-[10px] text-amber-700 mt-1">
+                      لا توجد أصناف مسجلة لهذا العميل — يمكن الحفظ بالوصف فقط، أو أضف أصنافًا من صفحة العملاء.
+                    </p>
+                  )}
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-700">بيان ووصف الحركة بالتفصيل</label>
                   <input
                     type="text"
-                    required
                     placeholder="مثال: رسوم الكشف الطبي بالميناء، رسم غرامات تأخير..."
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
                     className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none"
                   />
+                  <p className="text-[10px] text-slate-400">
+                    اختياري إذا اخترت صنفًا — يُستخدم اسم الصنف كوصف عند ترك الحقل فارغًا.
+                  </p>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">

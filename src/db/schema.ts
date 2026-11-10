@@ -214,6 +214,7 @@ export const statements = pgTable('statements', {
 export const statementItems = pgTable('statement_items', {
   id: uuid('id').primaryKey().defaultRandom(),
   statementId: uuid('statement_id').notNull().references(() => statements.id, { onDelete: 'cascade' }),
+  clientItemId: uuid('client_item_id').references(() => clientItems.id, { onDelete: 'set null' }),
   itemType: text('item_type').notNull(), // expense, fee, deposit_deduction, reversal
   description: text('description').notNull(),
   amount: numeric('amount', { precision: 18, scale: 2 }).notNull(),

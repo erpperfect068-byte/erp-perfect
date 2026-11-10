@@ -11,7 +11,7 @@ export async function GET(req: NextRequest) {
 
     const { data: statementsList, error: dbError } = await supabase
       .from('statements')
-      .select('*, shipment:shipments(*, client:clients(*)), items:statement_items(*)')
+      .select('*, shipment:shipments(*, client:clients(*)), items:statement_items(*, clientItem:client_items(id, name))')
       .eq('company_id', (user as any).company_id)
       .order('created_at', { ascending: false });
 
@@ -35,6 +35,10 @@ export async function GET(req: NextRequest) {
       const items = (stmt.items || []).map((item: any) => ({
         ...item,
         statementId: item.statement_id,
+        clientItemId: item.client_item_id || null,
+        clientItem: item.clientItem
+          ? { id: item.clientItem.id, name: item.clientItem.name }
+          : null,
         itemType: item.item_type,
         amount: parseFloat(Number(item.amount || 0).toFixed(2)),
         currency: item.currency || 'EGP',
@@ -88,6 +92,7 @@ export async function POST(req: NextRequest) {
       percentage,
       originalItemId,
       reversalReason,
+      clientItemId,
     } = body;
 
     if (!statementId) {
@@ -136,6 +141,7 @@ export async function POST(req: NextRequest) {
         .insert({
           company_id: (user as any).company_id || null,
           statement_id: statementId,
+          client_item_id: originalItem.client_item_id || null,
           item_type: 'reversal',
           description: `عكس عملية: ${originalItem.description}`,
           amount: revAmount,
@@ -179,8 +185,42 @@ export async function POST(req: NextRequest) {
       finalItem = reversalItem;
     } else {
       // Standard item insertion
-      if (!description || !amount || parseFloat(amount) <= 0) {
-        return NextResponse.json({ error: 'وصف البند والمبلغ (أكبر من 0) مطلوبان' }, { status: 400 });
+      if (!amount || parseFloat(amount) <= 0) {
+        return NextResponse.json({ error: 'المبلغ (أكبر من 0) مطلوب' }, { status: 400 });
+      }
+
+      let resolvedClientItemId: string | null = clientItemId || null;
+      let resolvedClientItemName: string | null = null;
+
+      if (resolvedClientItemId) {
+        if (!clientId) {
+          return NextResponse.json({ error: 'لا يمكن ربط الصنف: الشحنة بلا عميل' }, { status: 400 });
+        }
+        const { data: clientItem, error: itemErr } = await supabase
+          .from('client_items')
+          .select('id, name, client_id')
+          .eq('id', resolvedClientItemId)
+          .single();
+
+        if (itemErr || !clientItem) {
+          return NextResponse.json({ error: 'صنف العميل المحدد غير موجود' }, { status: 400 });
+        }
+        if (clientItem.client_id !== clientId) {
+          return NextResponse.json(
+            { error: 'صنف البضاعة لا يخص عميل هذه الشحنة' },
+            { status: 400 }
+          );
+        }
+        resolvedClientItemName = clientItem.name;
+      }
+
+      const resolvedDescription =
+        (typeof description === 'string' && description.trim()) ||
+        resolvedClientItemName ||
+        '';
+
+      if (!resolvedDescription) {
+        return NextResponse.json({ error: 'وصف البند أو صنف العميل مطلوب' }, { status: 400 });
       }
 
       const numAmount = parseFloat(Number(amount).toFixed(2));
@@ -191,8 +231,9 @@ export async function POST(req: NextRequest) {
         .insert({
           company_id: (user as any).company_id || null,
           statement_id: statementId,
+          client_item_id: resolvedClientItemId,
           item_type: itemType || 'expense',
-          description,
+          description: resolvedDescription,
           amount: numAmount,
           currency: currency || 'EGP',
           exchange_rate_at_transaction: numRate,
@@ -201,7 +242,7 @@ export async function POST(req: NextRequest) {
           percentage: percentage ? parseFloat(percentage) : null,
           created_by: user.id,
         })
-        .select()
+        .select('*, clientItem:client_items(id, name)')
         .single();
 
       if (insertErr) throw insertErr;
@@ -217,7 +258,7 @@ export async function POST(req: NextRequest) {
           currency: currency || 'EGP',
           exchange_rate_at_transaction: numRate,
           reference_number: externalReceiptNumber || null,
-          notes: `${itemType === 'fee' ? 'أتعاب تخليص' : 'مصاريف جمركية'}: ${description}`,
+          notes: `${itemType === 'fee' ? 'أتعاب تخليص' : 'مصاريف جمركية'}: ${resolvedDescription}`,
           created_by: user.id,
         });
       }
@@ -250,6 +291,10 @@ export async function POST(req: NextRequest) {
     const formattedItem = {
       ...finalItem,
       statementId: finalItem.statement_id,
+      clientItemId: finalItem.client_item_id || null,
+      clientItem: finalItem.clientItem
+        ? { id: finalItem.clientItem.id, name: finalItem.clientItem.name }
+        : null,
       itemType: finalItem.item_type,
       amount: parseFloat(Number(finalItem.amount || 0).toFixed(2)),
       currency: finalItem.currency || 'EGP',
