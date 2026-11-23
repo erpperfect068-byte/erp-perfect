@@ -111,8 +111,6 @@ export default function StatementsPage() {
   const [isSheetOpen, setIsSheetOpen] = useState(false);
   const [sheetDeposits, setSheetDeposits] = useState<SheetDeposit[]>([]);
   const [sheetClientItems, setSheetClientItems] = useState<ClientGoodsItem[]>([]);
-  const [sheetUsdRate, setSheetUsdRate] = useState('48.5');
-  const [sheetEurRate, setSheetEurRate] = useState('52.3');
   const [loadingSheet, setLoadingSheet] = useState(false);
 
   // Modal controls
@@ -915,8 +913,6 @@ export default function StatementsPage() {
             clientItems={sheetClientItems}
             deposits={sheetDeposits}
             accountantName={dbUser?.name || dbUser?.email || null}
-            usdRate={sheetUsdRate}
-            eurRate={sheetEurRate}
             canAddItems
             transportUnitKey={transportUnitKey}
             onTransportUnitChange={setTransportUnitKey}

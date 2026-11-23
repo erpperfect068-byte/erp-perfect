@@ -141,6 +141,7 @@ export async function POST(req: NextRequest) {
 
     // 8. Seed Shipments & Statements
     const { data: shipment1 } = await supabaseAdmin.from('shipments').insert({
+      company_id: companyId,
       client_id: clientNile.id,
       client_item_id: itemMeat.id,
       invoice_value: 45000.00,
@@ -161,6 +162,7 @@ export async function POST(req: NextRequest) {
     }).select().single();
 
     const { data: stmt1 } = await supabaseAdmin.from('statements').insert({
+      company_id: shipment1.company_id || companyId,
       shipment_id: shipment1.id,
       statement_date: '2026-09-21',
       currency: 'EGP',

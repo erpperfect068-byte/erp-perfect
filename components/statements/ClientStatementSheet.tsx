@@ -66,8 +66,6 @@ interface Props {
   clientItems: SheetClientItem[];
   deposits: SheetDeposit[];
   accountantName?: string | null;
-  usdRate?: string;
-  eurRate?: string;
   canAddItems?: boolean;
   transportUnitKey?: string;
   onTransportUnitChange?: (unit: string) => void;
@@ -240,8 +238,6 @@ export default function ClientStatementSheet({
   clientItems,
   deposits,
   accountantName,
-  usdRate = '',
-  eurRate = '',
   canAddItems = true,
   transportUnitKey = '20ft',
   onTransportUnitChange,
@@ -258,13 +254,10 @@ export default function ClientStatementSheet({
     const linked = statement.shipment?.clientItem?.id;
     return linked ? [linked] : [];
   });
-  const [localUsd, setLocalUsd] = useState(usdRate);
-  const [localEur, setLocalEur] = useState(eurRate);
-
   const [draftDesc, setDraftDesc] = useState('');
   const [draftAmount, setDraftAmount] = useState('');
   const [draftCurrency, setDraftCurrency] = useState('EGP');
-  const [draftRate, setDraftRate] = useState('1');
+  const [draftRate, setDraftRate] = useState('');
   const [draftReceipt, setDraftReceipt] = useState('');
   const [draftType, setDraftType] = useState<'expense' | 'fee' | 'deposit_deduction'>('expense');
   /** When foreign currency: false = keep as-is; true = enter EGP + rate. */
@@ -276,17 +269,12 @@ export default function ClientStatementSheet({
   }, [declaration46, statement.id]);
 
   useEffect(() => {
-    setLocalUsd(usdRate);
-    setLocalEur(eurRate);
-  }, [usdRate, eurRate]);
-
-  useEffect(() => {
+    // Never prefill FX rate — user types it when converting to EGP
+    setDraftRate('');
     if (draftCurrency === 'EGP') {
-      setDraftRate('1');
       setDraftConvertToEgp(false);
-    } else if (draftCurrency === 'USD') setDraftRate(localUsd || '48.5');
-    else if (draftCurrency === 'EUR') setDraftRate(localEur || '52.3');
-  }, [draftCurrency, localUsd, localEur]);
+    }
+  }, [draftCurrency]);
 
   const draftRateNum = Number(draftRate) || 0;
   const draftAmountNum = Number(draftAmount) || 0;
@@ -513,24 +501,6 @@ export default function ClientStatementSheet({
               <tbody>
                 <HeaderCell label="مطلوب من">
                   {statement.client?.name || '—'}
-                </HeaderCell>
-                <HeaderCell label="سعر تحويل الدولار">
-                  <input
-                    type="text"
-                    value={localUsd}
-                    onChange={(e) => setLocalUsd(e.target.value)}
-                    className="w-full bg-transparent outline-none font-mono print:border-0"
-                    placeholder="—"
-                  />
-                </HeaderCell>
-                <HeaderCell label="سعر تحويل اليورو">
-                  <input
-                    type="text"
-                    value={localEur}
-                    onChange={(e) => setLocalEur(e.target.value)}
-                    className="w-full bg-transparent outline-none font-mono print:border-0"
-                    placeholder="—"
-                  />
                 </HeaderCell>
                 <HeaderCell label="رقم الأوردر">
                   <input

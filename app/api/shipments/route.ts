@@ -146,9 +146,9 @@ export async function POST(req: NextRequest) {
 
     if (insertError) throw insertError;
 
-    // 2. Auto-create empty Statement for this shipment
+    // 2. Auto-create empty Statement — always inherit shipment company (tenant isolation)
     await supabase.from('statements').insert({
-      company_id: (user as any).company_id || null,
+      company_id: newShipment.company_id || (user as any).company_id || null,
       shipment_id: newShipment.id,
       statement_date: new Date().toISOString().split('T')[0],
       currency: 'EGP',

@@ -74,10 +74,17 @@ export async function POST(req: NextRequest) {
 
       let statementId = stmt?.id;
       if (!statementId) {
+        const { data: shipmentRow } = await supabase
+          .from('shipments')
+          .select('company_id')
+          .eq('id', shipmentId)
+          .maybeSingle();
+
         const { data: newStmt } = await supabase
           .from('statements')
           .insert({
-            company_id: (user as any).company_id || null,
+            company_id:
+              shipmentRow?.company_id || (user as any).company_id || null,
             shipment_id: shipmentId,
             statement_date: new Date().toISOString().split('T')[0],
             currency: custody.currency || 'EGP',
