@@ -6,6 +6,7 @@ import PermissionGuard from '../../components/PermissionGuard';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../components/Toast';
 import { LoadingButton } from '../../components/LoadingButton';
+import { AppModal, ModalSubmitButton } from '@/components/AppModal';
 import Link from 'next/link';
 import {
   Ship,
@@ -506,8 +507,7 @@ export default function ShipmentsPage() {
         )}
 
         {/* Create Shipment Modal */}
-        {isCreateOpen && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
+        <AppModal open={isCreateOpen} className="overflow-y-auto">
             <div className="bg-white rounded-3xl max-w-3xl w-full max-h-[90vh] overflow-y-auto p-6 md:p-8 border border-slate-100 shadow-2xl">
               <div className="flex items-center justify-between border-b border-slate-100 pb-4">
                 <div className="flex items-center gap-2">
@@ -802,23 +802,22 @@ export default function ShipmentsPage() {
                   >
                     إلغاء
                   </button>
-                  <LoadingButton
+                  <ModalSubmitButton
                     type="submit"
                     isLoading={isSubmittingCreate}
                     loadingText="جاري فتح ملف الشحنة..."
                     className="px-6 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold shadow-lg"
                   >
                     فتح ملف الشحنة جمركياً
-                  </LoadingButton>
+                  </ModalSubmitButton>
                 </div>
               </form>
             </div>
-          </div>
-        )}
+        </AppModal>
 
         {/* Update Shipment Status Modal */}
         {isUpdateStatusOpen && selectedShipment && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <AppModal open>
             <div className="bg-white rounded-3xl max-w-md w-full p-6 md:p-8 border border-slate-100 shadow-2xl">
               <div className="flex items-center justify-between border-b border-slate-100 pb-4">
                 <h3 className="text-lg font-bold text-slate-900">تحديث تفاصيل تخليص الشحنة يدوياً</h3>
@@ -892,18 +891,18 @@ export default function ShipmentsPage() {
                   >
                     إلغاء
                   </button>
-                  <LoadingButton
+                  <ModalSubmitButton
                     type="submit"
                     isLoading={isSubmittingStatus}
                     loadingText="جاري تحديث الملف..."
                     className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-lg"
                   >
                     تحديث الملف واللوحة
-                  </LoadingButton>
+                  </ModalSubmitButton>
                 </div>
               </form>
             </div>
-          </div>
+        </AppModal>
         )}
       </div>
     </SidebarLayout>

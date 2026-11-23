@@ -6,6 +6,7 @@ import PermissionGuard from "../../components/PermissionGuard";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../components/Toast";
 import { LoadingButton } from "../../components/LoadingButton";
+import { AppModal, ModalSubmitButton } from "@/components/AppModal";
 import { MetricCardSkeleton, TableSkeleton } from "@/components/ui/Skeleton";
 import ContractorInvoiceSheet, {
   type InvoiceSheetInvoice,
@@ -265,7 +266,11 @@ export default function TreasuryPage() {
       treasuryId: selectedTreasuryId !== "all" ? selectedTreasuryId : (treasuries[0]?.id || ""),
       bankAccountId: defaultAcc?.id || "",
       amount: String(inv.remainingAmount || inv.totalAmount),
-      referenceNumber: `TRF-${Date.now().toString().slice(-6)}`,
+      // Stable from invoice id — avoid Date.now() (React purity / compiler rule)
+      referenceNumber: `TRF-${String(inv.id || inv.invoiceNumber || "")
+        .replace(/-/g, "")
+        .slice(-6)
+        .toUpperCase()}`,
       notes: `سداد فاتورة مقاول رقم ${inv.invoiceNumber}`,
     });
     setIsContractorPayModalOpen(true);
@@ -1256,7 +1261,7 @@ export default function TreasuryPage() {
 
         {/* Modal 1: Add New Treasury Modal */}
         {isAddTreasuryModalOpen && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <AppModal open>
             <div className="bg-white rounded-3xl max-w-md w-full p-6 border border-slate-100 shadow-2xl">
               <div className="flex items-center justify-between border-b border-slate-100 pb-4">
                 <div className="flex items-center gap-2">
@@ -1328,23 +1333,23 @@ export default function TreasuryPage() {
                   >
                     إلغاء
                   </button>
-                  <LoadingButton
+                  <ModalSubmitButton
                     type="submit"
                     isLoading={submittingTreasury}
                     loadingText="جاري حفظ الخزنة..."
                     className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-md"
                   >
                     حفظ وإنشاء الخزنة
-                  </LoadingButton>
+                  </ModalSubmitButton>
                 </div>
               </form>
             </div>
-          </div>
+          </AppModal>
         )}
 
         {/* Modal 2: Inter-Treasury Transfer Modal */}
         {isTransferModalOpen && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <AppModal open>
             <div className="bg-white rounded-3xl max-w-lg w-full p-6 md:p-8 border border-slate-100 shadow-2xl">
               <div className="flex items-center justify-between border-b border-slate-100 pb-4">
                 <div className="flex items-center gap-2">
@@ -1494,23 +1499,23 @@ export default function TreasuryPage() {
                   >
                     إلغاء
                   </button>
-                  <LoadingButton
+                  <ModalSubmitButton
                     type="submit"
                     isLoading={submittingTransfer}
                     loadingText="جاري تنفيذ التحويل..."
                     className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-md flex items-center gap-2"
                   >
                     تأكيد وتنفيذ التحويل المالي
-                  </LoadingButton>
+                  </ModalSubmitButton>
                 </div>
               </form>
             </div>
-          </div>
+          </AppModal>
         )}
 
         {/* Modal 3: Direct Deposit/Withdraw Modal */}
         {isModalOpen && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <AppModal open>
             <div className="bg-white rounded-3xl max-w-md w-full p-6 md:p-8 border border-slate-100 shadow-2xl">
               <div className="flex items-center justify-between border-b border-slate-100 pb-4">
                 <div className="flex items-center gap-2">
@@ -1641,23 +1646,23 @@ export default function TreasuryPage() {
                   >
                     إلغاء
                   </button>
-                  <LoadingButton
+                  <ModalSubmitButton
                     type="submit"
                     isLoading={submittingDirectTx}
                     loadingText="جاري تثبيت القيد..."
                     className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-lg"
                   >
                     تثبيت قيد المعاملة
-                  </LoadingButton>
+                  </ModalSubmitButton>
                 </div>
               </form>
             </div>
-          </div>
+          </AppModal>
         )}
 
         {/* Modal 4: Edit Treasury Metadata Modal (Strict Financial Rule 1: No balance field) */}
         {isEditModalOpen && editingTreasury && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <AppModal open>
             <div className="bg-white rounded-3xl max-w-md w-full p-6 border border-slate-100 shadow-2xl">
               <div className="flex items-center justify-between border-b border-slate-100 pb-4">
                 <div className="flex items-center gap-2">
@@ -1734,23 +1739,23 @@ export default function TreasuryPage() {
                   >
                     إلغاء
                   </button>
-                  <LoadingButton
+                  <ModalSubmitButton
                     type="submit"
                     isLoading={submittingEdit}
                     loadingText="جاري حفظ التعديلات..."
                     className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-md"
                   >
                     حفظ التعديلات
-                  </LoadingButton>
+                  </ModalSubmitButton>
                 </div>
               </form>
             </div>
-          </div>
+          </AppModal>
         )}
 
         {/* Modal 5: Delete Treasury Confirmation (Strict Financial Rule 2: Balance must be 0) */}
         {isDeleteModalOpen && deletingTreasury && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <AppModal open>
             <div className="bg-white rounded-3xl max-w-md w-full p-6 border border-slate-100 shadow-2xl space-y-4">
               <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                 <div className="flex items-center gap-2 text-rose-600">
@@ -1768,7 +1773,7 @@ export default function TreasuryPage() {
               <div className="space-y-3">
                 <p className="text-sm font-semibold text-slate-800 leading-relaxed">
                   هل أنت متأكد من رغبتك في حذف الخزنة{" "}
-                  <strong className="text-rose-600">"{deletingTreasury.name}"</strong>؟
+                  <strong className="text-rose-600">&quot;{deletingTreasury.name}&quot;</strong>&rdquo;؟
                 </p>
 
                 {/* Balances Warning Box */}
@@ -1799,7 +1804,7 @@ export default function TreasuryPage() {
                 >
                   إلغاء
                 </button>
-                <LoadingButton
+                <ModalSubmitButton
                   onClick={handleDeleteTreasury}
                   isLoading={submittingDelete}
                   loadingText="جاري الحذف..."
@@ -1807,15 +1812,15 @@ export default function TreasuryPage() {
                   className="px-5 py-2.5 rounded-xl text-xs font-bold shadow-md"
                 >
                   تأكيد الحذف
-                </LoadingButton>
+                </ModalSubmitButton>
               </div>
             </div>
-          </div>
+          </AppModal>
         )}
 
         {/* Modal 6: Adjust Balance Modal (Logged Transaction Entry) */}
         {isAdjustModalOpen && adjustingTreasury && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <AppModal open>
             <div className="bg-white rounded-3xl max-w-md w-full p-6 md:p-8 border border-slate-100 shadow-2xl">
               <div className="flex items-center justify-between border-b border-slate-100 pb-4">
                 <div className="flex items-center gap-2">
@@ -1929,23 +1934,23 @@ export default function TreasuryPage() {
                   >
                     إلغاء
                   </button>
-                  <LoadingButton
+                  <ModalSubmitButton
                     type="submit"
                     isLoading={submittingAdjust}
                     loadingText="جاري قيد التسوية..."
                     className="px-5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shadow-md"
                   >
                     تثبيت قيد التسوية
-                  </LoadingButton>
+                  </ModalSubmitButton>
                 </div>
               </form>
             </div>
-          </div>
+          </AppModal>
         )}
 
         {/* Contractor Payout Modal from Treasury Alert */}
         {isContractorPayModalOpen && payingContractorInvoice && (
-          <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <AppModal open>
             <div className="bg-white border border-slate-200 rounded-3xl max-w-lg w-full p-6 shadow-2xl animate-in fade-in zoom-in-95">
               <div className="flex items-center justify-between pb-3 border-b border-slate-100">
                 <div>
@@ -2061,17 +2066,18 @@ export default function TreasuryPage() {
                   >
                     إلغاء
                   </button>
-                  <button
+                  <ModalSubmitButton
                     type="submit"
-                    disabled={submittingContractorPay}
+                    isLoading={submittingContractorPay}
+                    loadingText="جاري التحويل وخصم الخزنة..."
                     className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-100"
                   >
-                    {submittingContractorPay ? 'جاري التحويل وخصم الخزنة...' : 'تأكيد السداد والخصم'}
-                  </button>
+                    تأكيد السداد والخصم
+                  </ModalSubmitButton>
                 </div>
               </form>
             </div>
-          </div>
+          </AppModal>
         )}
 
         {viewingContractorInvoice && (

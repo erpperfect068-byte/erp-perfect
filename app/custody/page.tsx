@@ -6,6 +6,7 @@ import PermissionGuard from '../../components/PermissionGuard';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../components/Toast';
 import { LoadingButton } from '../../components/LoadingButton';
+import { AppModal, ModalSubmitButton } from '@/components/AppModal';
 import {
   Wallet,
   Plus,
@@ -1000,7 +1001,7 @@ export default function CustodyPage() {
 
         {/* Modal 1: Issue New Custody */}
         {isIssueOpen && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <AppModal open>
             <div className="bg-white rounded-3xl max-w-lg w-full p-6 md:p-8 border border-slate-100 shadow-2xl">
               <div className="flex items-center justify-between border-b border-slate-100 pb-4">
                 <div className="flex items-center gap-2">
@@ -1160,23 +1161,23 @@ export default function CustodyPage() {
                   >
                     إلغاء
                   </button>
-                  <LoadingButton
+                  <ModalSubmitButton
                     type="submit"
                     isLoading={isSubmittingIssue}
                     loadingText="جاري تأكيد الصرف..."
                     className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-lg"
                   >
                     تأكيد الصرف من الخزنة
-                  </LoadingButton>
+                  </ModalSubmitButton>
                 </div>
               </form>
             </div>
-          </div>
+          </AppModal>
         )}
 
         {/* Modal 2: Record Expense */}
         {isExpenseOpen && selectedCustody && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <AppModal open>
             <div className="bg-white rounded-3xl max-w-md w-full p-6 md:p-8 border border-slate-100 shadow-2xl">
               <div className="flex items-center justify-between border-b border-slate-100 pb-4">
                 <div>
@@ -1292,23 +1293,23 @@ export default function CustodyPage() {
                   >
                     إلغاء
                   </button>
-                  <LoadingButton
+                  <ModalSubmitButton
                     type="submit"
                     isLoading={isSubmittingExpense}
                     loadingText="جاري تسجيل المصروف..."
                     className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-lg"
                   >
                     تسجيل المصروف
-                  </LoadingButton>
+                  </ModalSubmitButton>
                 </div>
               </form>
             </div>
-          </div>
+          </AppModal>
         )}
 
         {/* Modal 3: Add New Expense Type */}
         {isAddTypeOpen && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <AppModal open>
             <div className="bg-white rounded-3xl max-w-sm w-full p-6 border border-slate-100 shadow-2xl">
               <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                 <div className="flex items-center gap-2">
@@ -1341,23 +1342,23 @@ export default function CustodyPage() {
                   >
                     إلغاء
                   </button>
-                  <LoadingButton
+                  <ModalSubmitButton
                     type="submit"
                     isLoading={isSubmittingType}
                     loadingText="جاري الحفظ..."
                     className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow"
                   >
                     حفظ التصنيف
-                  </LoadingButton>
+                  </ModalSubmitButton>
                 </div>
               </form>
             </div>
-          </div>
+          </AppModal>
         )}
 
         {/* Modal 4: Printable Custody Statement */}
         {printCustody && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <AppModal open>
             <div className="bg-white rounded-3xl max-w-2xl w-full p-6 md:p-8 border border-slate-100 shadow-2xl max-h-[90vh] overflow-y-auto">
               <div className="flex items-center justify-between border-b border-slate-100 pb-4 print:hidden">
                 <h3 className="text-lg font-bold text-slate-900">كشف حساب عهدة موظف</h3>
@@ -1440,12 +1441,12 @@ export default function CustodyPage() {
                 </div>
               </div>
             </div>
-          </div>
+          </AppModal>
         )}
 
         {/* Modal 5: Reverse / Refund Expense Modal */}
         {isReverseModalOpen && reversingExpense && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <AppModal open>
             <div className="bg-white rounded-3xl max-w-lg w-full p-6 md:p-8 border border-slate-100 shadow-2xl relative">
               <div className="flex items-center justify-between border-b border-slate-100 pb-4">
                 <div className="flex items-center gap-3">
@@ -1571,18 +1572,18 @@ export default function CustodyPage() {
                   >
                     إلغاء
                   </button>
-                  <LoadingButton
+                  <ModalSubmitButton
                     type="submit"
                     isLoading={isSubmittingReverse}
                     className="px-5 py-2.5 bg-orange-600 hover:bg-orange-700 active:bg-orange-800 text-white rounded-xl text-xs font-bold shadow-lg shadow-orange-600/20 transition-colors flex items-center gap-1.5"
                   >
                     <Undo2 className="h-4 w-4" />
                     تأكيد قيد الاسترداد
-                  </LoadingButton>
+                  </ModalSubmitButton>
                 </div>
               </form>
             </div>
-          </div>
+          </AppModal>
         )}
       </div>
     </SidebarLayout>

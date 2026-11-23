@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
+import { AppModal, ModalSubmitButton } from '@/components/AppModal';
 import SidebarLayout from '@/components/SidebarLayout';
 import PermissionGuard from '@/components/PermissionGuard';
 import { useAuth } from '@/context/AuthContext';
@@ -1409,7 +1410,7 @@ export default function ContractorsPage() {
           {/* MODAL 1: Add / Edit Contractor */}
           {/* ========================================================= */}
           {isContractorModalOpen && (
-            <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+            <AppModal open>
               <div className="bg-white border border-slate-200 rounded-3xl max-w-lg w-full p-6 shadow-2xl animate-in fade-in zoom-in-95">
                 <div className="flex items-center justify-between pb-4 border-b border-slate-100">
                   <h3 className="text-base font-black text-slate-900 flex items-center gap-2">
@@ -1491,24 +1492,25 @@ export default function ContractorsPage() {
                     >
                       إلغاء
                     </button>
-                    <button
+                    <ModalSubmitButton
                       type="submit"
-                      disabled={submitting}
+                      isLoading={submitting}
+                      loadingText="جاري الحفظ..."
                       className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-md shadow-indigo-100"
                     >
-                      {submitting ? 'جاري الحفظ...' : 'حفظ البيانات'}
-                    </button>
+                      حفظ البيانات
+                    </ModalSubmitButton>
                   </div>
                 </form>
               </div>
-            </div>
+            </AppModal>
           )}
 
           {/* ========================================================= */}
           {/* MODAL 2: Bank Accounts Management */}
           {/* ========================================================= */}
           {isBankModalOpen && selectedContractorForBank && (
-            <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+            <AppModal open>
               <div className="bg-white border border-slate-200 rounded-3xl max-w-xl w-full p-6 shadow-2xl animate-in fade-in zoom-in-95">
                 <div className="flex items-center justify-between pb-4 border-b border-slate-100">
                   <div>
@@ -1648,24 +1650,25 @@ export default function ContractorsPage() {
                   </label>
 
                   <div className="pt-2 flex justify-end">
-                    <button
+                    <ModalSubmitButton
                       type="submit"
-                      disabled={submitting}
+                      isLoading={submitting}
+                      loadingText="جاري الإضافة..."
                       className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold"
                     >
-                      {submitting ? 'جاري الإضافة...' : 'إضافة الحساب'}
-                    </button>
+                      إضافة الحساب
+                    </ModalSubmitButton>
                   </div>
                 </form>
               </div>
-            </div>
+            </AppModal>
           )}
 
           {/* ========================================================= */}
           {/* MODAL 3: Zone Rates Management */}
           {/* ========================================================= */}
           {isRateModalOpen && selectedContractorForRates && (
-            <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+            <AppModal open>
               <div className="bg-white border border-slate-200 rounded-3xl max-w-xl w-full p-6 shadow-2xl animate-in fade-in zoom-in-95">
                 <div className="flex items-center justify-between pb-4 border-b border-slate-100">
                   <div>
@@ -1785,24 +1788,25 @@ export default function ContractorsPage() {
                   </div>
 
                   <div className="pt-2 flex justify-end">
-                    <button
+                    <ModalSubmitButton
                       type="submit"
-                      disabled={submitting}
+                      isLoading={submitting}
+                      loadingText="جاري الإضافة..."
                       className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold"
                     >
-                      {submitting ? 'جاري الإضافة...' : 'إضافة التسعيرة'}
-                    </button>
+                      إضافة التسعيرة
+                    </ModalSubmitButton>
                   </div>
                 </form>
               </div>
-            </div>
+            </AppModal>
           )}
 
           {/* ========================================================= */}
           {/* MODAL 4: Create / Edit Contractor Invoice */}
           {/* ========================================================= */}
           {isInvoiceModalOpen && (
-            <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+            <AppModal open>
               <div className="bg-white border border-slate-200 rounded-3xl max-w-2xl w-full p-6 shadow-2xl animate-in fade-in zoom-in-95 max-h-[90vh] flex flex-col">
                 <div className="flex items-center justify-between pb-3 border-b border-slate-100 shrink-0">
                   <h3 className="text-base font-black text-slate-900 flex items-center gap-2">
@@ -1924,17 +1928,18 @@ export default function ContractorsPage() {
                     >
                       إلغاء
                     </button>
-                    <button
+                    <ModalSubmitButton
                       type="submit"
-                      disabled={submitting}
+                      isLoading={submitting}
+                      loadingText="جاري الحفظ..."
                       className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-md shadow-indigo-100"
                     >
-                      {submitting ? 'جاري الحفظ...' : 'إنشاء الفاتورة وفتح الورقة'}
-                    </button>
+                      إنشاء الفاتورة وفتح الورقة
+                    </ModalSubmitButton>
                   </div>
                 </form>
               </div>
-            </div>
+            </AppModal>
           )}
 
           {/* ========================================================= */}
@@ -1962,7 +1967,7 @@ export default function ContractorsPage() {
           {/* MODAL 6: Payout from Treasury */}
           {/* ========================================================= */}
           {isPayModalOpen && payingInvoice && (
-            <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+            <AppModal open>
               <div className="bg-white border border-slate-200 rounded-3xl max-w-lg w-full p-6 shadow-2xl animate-in fade-in zoom-in-95">
                 <div className="flex items-center justify-between pb-3 border-b border-slate-100">
                   <div>
@@ -2078,17 +2083,18 @@ export default function ContractorsPage() {
                     >
                       إلغاء
                     </button>
-                    <button
+                    <ModalSubmitButton
                       type="submit"
-                      disabled={submitting}
+                      isLoading={submitting}
+                      loadingText="جاري التحويل وخصم الخزنة..."
                       className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-100"
                     >
-                      {submitting ? 'جاري التحويل وخصم الخزنة...' : 'تأكيد السداد والخصم'}
-                    </button>
+                      تأكيد السداد والخصم
+                    </ModalSubmitButton>
                   </div>
                 </form>
               </div>
-            </div>
+            </AppModal>
           )}
         </div>
       </SidebarLayout>

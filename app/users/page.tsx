@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import { AppModal, ModalSubmitButton } from '@/components/AppModal';
 import SidebarLayout from '../../components/SidebarLayout';
 import PermissionGuard from '../../components/PermissionGuard';
 import { useAuth } from '../../context/AuthContext';
@@ -394,8 +395,7 @@ export default function UsersPage() {
       </div>
 
       {/* Create User Modal */}
-      {isModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <AppModal open={isModalOpen}>
           <div className="bg-white rounded-3xl max-w-md w-full p-6 md:p-8 border border-slate-100 shadow-2xl">
             <div className="flex items-center justify-between border-b border-slate-100 pb-4 mb-5">
               <div className="flex items-center gap-2">
@@ -497,18 +497,15 @@ export default function UsersPage() {
               </div>
 
               <div className="pt-2">
-                <button
+                <ModalSubmitButton
                   type="submit"
-                  disabled={submitting}
-                  className="w-full bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-bold py-3 rounded-xl shadow-lg transition-colors flex items-center justify-center gap-2 text-sm disabled:opacity-60"
+                  isLoading={submitting}
+                  loadingText="جاري الإنشاء..."
+                  className="w-full bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-bold py-3 rounded-xl shadow-lg text-sm"
                 >
-                  {submitting ? (
-                    <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  ) : (
-                    <UserCog className="h-4 w-4" />
-                  )}
-                  {submitting ? 'جاري الإنشاء...' : 'إنشاء الحساب وتفعيله مباشرة'}
-                </button>
+                  <UserCog className="h-4 w-4" />
+                  إنشاء الحساب وتفعيله مباشرة
+                </ModalSubmitButton>
               </div>
 
               <p className="text-[10px] text-slate-400 text-center">
@@ -516,8 +513,7 @@ export default function UsersPage() {
               </p>
             </form>
           </div>
-        </div>
-      )}
+      </AppModal>
     </SidebarLayout>
     </PermissionGuard>
   );

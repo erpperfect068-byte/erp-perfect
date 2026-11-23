@@ -23,6 +23,7 @@ import {
   Ship,
   Info
 } from 'lucide-react';
+import { AppModal, ModalSubmitButton } from '@/components/AppModal';
 
 interface Client {
   id: string;
@@ -76,6 +77,7 @@ export default function DepositsPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'general' | 'linked'>('all');
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Form states
   const [depositType, setDepositType] = useState<'general' | 'linked'>('general');
@@ -145,6 +147,7 @@ export default function DepositsPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
     if (!clientId || !amount) {
       showToast('يرجى تحديد العميل والمبلغ لتسجيل الإيداع', 'warning');
       return;
@@ -155,6 +158,7 @@ export default function DepositsPage() {
       return;
     }
 
+    setIsSubmitting(true);
     try {
       const token = await getAuthToken();
       const res = await fetch('/api/deposits', {
@@ -197,6 +201,8 @@ export default function DepositsPage() {
     } catch (err) {
       console.error(err);
       showToast('خطأ بالخادم عند معالجة الإيداع', 'error');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -499,8 +505,7 @@ export default function DepositsPage() {
         )}
 
         {/* Deposit Creation Modal */}
-        {isModalOpen && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
+        <AppModal open={isModalOpen} className="overflow-y-auto">
             <div className="bg-white rounded-3xl max-w-lg w-full p-6 sm:p-8 border border-slate-100 shadow-2xl my-8">
               <div className="flex items-center justify-between border-b border-slate-100 pb-4">
                 <div className="flex items-center gap-2">
@@ -718,21 +723,23 @@ export default function DepositsPage() {
                   <button
                     type="button"
                     onClick={() => setIsModalOpen(false)}
-                    className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 text-xs font-bold hover:bg-slate-50 transition-colors"
+                    disabled={isSubmitting}
+                    className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 text-xs font-bold hover:bg-slate-50 transition-colors disabled:opacity-60"
                   >
                     إلغاء
                   </button>
-                  <button
+                  <ModalSubmitButton
                     type="submit"
-                    className="px-6 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-lg shadow-indigo-600/20 transition-colors"
+                    isLoading={isSubmitting}
+                    loadingText="جاري التسجيل..."
+                    className="px-6 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-lg shadow-indigo-600/20"
                   >
                     تسجيل وقيد الأمانة في الخزينة
-                  </button>
+                  </ModalSubmitButton>
                 </div>
               </form>
             </div>
-          </div>
-        )}
+        </AppModal>
       </div>
     </SidebarLayout>
     </PermissionGuard>

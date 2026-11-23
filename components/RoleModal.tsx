@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { X, Check, Shield, Layers, AlertCircle, Save } from 'lucide-react';
+import { AppModal, ModalSubmitButton } from '@/components/AppModal';
 import { MODULE_LABELS, getPermissionDisplayLabel } from '@/lib/permissions';
 
 export interface PermissionItem {
@@ -116,7 +117,7 @@ export default function RoleModal({
   const isEditing = !!roleToEdit;
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+    <AppModal open className="overflow-y-auto">
       <div className="bg-white rounded-3xl max-w-3xl w-full border border-slate-100 shadow-2xl overflow-hidden my-8 flex flex-col max-h-[90vh]">
         {/* Header */}
         <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
@@ -291,17 +292,18 @@ export default function RoleModal({
             >
               إلغاء
             </button>
-            <button
+            <ModalSubmitButton
               type="submit"
-              disabled={loading}
-              className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-sm shadow-indigo-200 flex items-center gap-2 transition disabled:opacity-50"
+              isLoading={loading}
+              loadingText="جاري الحفظ..."
+              className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-sm shadow-indigo-200"
             >
               <Save className="h-4 w-4" />
-              <span>{loading ? 'جاري الحفظ...' : isEditing ? 'حفظ التعديلات' : 'إنشاء الدور'}</span>
-            </button>
+              <span>{isEditing ? 'حفظ التعديلات' : 'إنشاء الدور'}</span>
+            </ModalSubmitButton>
           </div>
         </form>
       </div>
-    </div>
+    </AppModal>
   );
 }

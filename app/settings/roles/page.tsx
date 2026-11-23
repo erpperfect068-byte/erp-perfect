@@ -6,6 +6,7 @@ import PermissionGuard from '../../../components/PermissionGuard';
 import { useAuth } from '../../../context/AuthContext';
 import { useToast } from '../../../components/Toast';
 import RoleModal, { PermissionGroup, RoleData } from '../../../components/RoleModal';
+import { AppModal, ModalSubmitButton } from '@/components/AppModal';
 import {
   Shield,
   Plus,
@@ -380,8 +381,7 @@ export default function RolesSettingsPage() {
         loading={actionLoading}
       />
 
-      {roleToDelete && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+      <AppModal open={!!roleToDelete}>
           <div className="bg-white rounded-3xl max-w-md w-full p-6 border border-slate-100 shadow-2xl space-y-4">
             <div className="w-12 h-12 bg-rose-50 text-rose-600 rounded-2xl flex items-center justify-center mx-auto">
               <Trash2 className="w-6 h-6" />
@@ -389,9 +389,9 @@ export default function RolesSettingsPage() {
             <div className="text-center space-y-1">
               <h3 className="text-lg font-bold text-slate-900">تأكيد حذف الدور الوظيفي</h3>
               <p className="text-xs text-slate-500">
-                هل أنت متأكد من رغبتك في حذف الدور <strong className="text-slate-800">&quot;{roleToDelete.name}&quot;</strong>؟
+                هل أنت متأكد من رغبتك في حذف الدور <strong className="text-slate-800">&quot;{roleToDelete?.name}&quot;</strong>؟
               </p>
-              {roleToDelete.userCount > 0 && (
+              {roleToDelete && roleToDelete.userCount > 0 && (
                 <p className="text-xs text-rose-600 bg-rose-50 p-2.5 rounded-xl border border-rose-100 font-bold mt-2">
                   تنبيه: يوجد {roleToDelete.userCount} موظف مرتبطين بهذا الدور. سيمنع النظام الحذف حتى يتم نقلهم لدور آخر.
                 </p>
@@ -406,18 +406,19 @@ export default function RolesSettingsPage() {
               >
                 إلغاء
               </button>
-              <button
+              <ModalSubmitButton
                 type="button"
                 onClick={handleDeleteRole}
-                disabled={actionLoading || roleToDelete.userCount > 0}
-                className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl transition disabled:opacity-50"
+                isLoading={actionLoading}
+                disabled={!!roleToDelete && roleToDelete.userCount > 0}
+                loadingText="جاري الحذف..."
+                className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl"
               >
-                {actionLoading ? 'جاري الحذف...' : 'نعم، حذف الدور'}
-              </button>
+                نعم، حذف الدور
+              </ModalSubmitButton>
             </div>
           </div>
-        </div>
-      )}
+      </AppModal>
     </SidebarLayout>
     </PermissionGuard>
   );

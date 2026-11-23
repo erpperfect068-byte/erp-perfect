@@ -6,6 +6,7 @@ import PermissionGuard from '../../components/PermissionGuard';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../components/Toast';
 import { LoadingButton } from '../../components/LoadingButton';
+import { AppModal, ModalSubmitButton } from '@/components/AppModal';
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
 import { Drawer } from '@/components/ui/Drawer';
 import {
@@ -587,8 +588,7 @@ export default function ClientsPage() {
             )}
           </Drawer>
 
-          {isModalOpen && (
-            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
+          <AppModal open={isModalOpen} className="overflow-y-auto">
               <div className="bg-white rounded-3xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6 md:p-8 border border-slate-100 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
                 <div className="flex items-center justify-between border-b border-slate-100 pb-4">
                   <div className="flex items-center gap-2">
@@ -744,19 +744,18 @@ export default function ClientsPage() {
                     >
                       إلغاء
                     </button>
-                    <LoadingButton
+                    <ModalSubmitButton
                       type="submit"
                       isLoading={isSubmitting}
                       loadingText={editingClient ? 'جاري تحديث بيانات العميل...' : 'جاري حفظ وتسجيل العميل...'}
                       className="px-6 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold shadow-lg shadow-indigo-600/10"
                     >
                       {editingClient ? 'حفظ التعديلات' : 'حفظ وتسجيل'}
-                    </LoadingButton>
+                    </ModalSubmitButton>
                   </div>
                 </form>
               </div>
-            </div>
-          )}
+          </AppModal>
         </div>
       </SidebarLayout>
     </PermissionGuard>

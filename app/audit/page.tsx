@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import { AppModal, ModalSubmitButton } from '@/components/AppModal';
 import SidebarLayout from '../../components/SidebarLayout';
 import PermissionGuard from '../../components/PermissionGuard';
 import { useAuth } from '../../context/AuthContext';
@@ -656,7 +657,7 @@ export default function AuditPage() {
 
         {/* Human-Readable Audit Details Modal (No Raw JSON) */}
         {selectedLog && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <AppModal open>
             <div className="bg-white rounded-3xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6 md:p-8 border border-slate-100 shadow-2xl space-y-6">
               {/* Modal Header */}
               <div className="flex items-center justify-between border-b border-slate-100 pb-4">
@@ -722,7 +723,7 @@ export default function AuditPage() {
                 </button>
               </div>
             </div>
-          </div>
+          </AppModal>
         )}
       </div>
     </SidebarLayout>

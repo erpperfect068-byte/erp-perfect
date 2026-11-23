@@ -6,6 +6,7 @@ import PermissionGuard from '../../components/PermissionGuard';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../components/Toast';
 import { LoadingButton } from '../../components/LoadingButton';
+import { AppModal, ModalSubmitButton } from '@/components/AppModal';
 import { motion } from 'motion/react';
 import {
   FileText,
@@ -627,7 +628,7 @@ export default function StatementsPage() {
 
         {/* Add Statement Item Modal */}
         {isAddItemOpen && selectedStatement && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <AppModal open>
             <div className="bg-white rounded-3xl max-w-md w-full p-6 md:p-8 border border-slate-100 shadow-2xl animate-in zoom-in-95 duration-150">
               <div className="flex items-center justify-between border-b border-slate-100 pb-4">
                 <h3 className="text-lg font-bold text-slate-900">إدراج حركة مالية جديدة في الكشف</h3>
@@ -775,23 +776,23 @@ export default function StatementsPage() {
                   >
                     إلغاء
                   </button>
-                  <LoadingButton
+                  <ModalSubmitButton
                     type="submit"
                     isLoading={isSubmittingItem}
                     loadingText="جاري تثبيت القيد..."
                     className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-lg"
                   >
                     تثبيت القيد بالكشف
-                  </LoadingButton>
+                  </ModalSubmitButton>
                 </div>
               </form>
             </div>
-          </div>
+        </AppModal>
         )}
 
         {/* Reversal Confirmation Modal */}
         {isReverseOpen && itemToReverse && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+        <AppModal open zIndexClass="z-[60]">
             <div className="bg-white rounded-3xl max-w-md w-full p-6 md:p-8 border border-slate-100 shadow-2xl">
               <div className="flex items-center justify-between border-b border-slate-100 pb-4">
                 <h3 className="text-lg font-bold text-slate-900 flex items-center gap-1.5">
@@ -832,22 +833,21 @@ export default function StatementsPage() {
                   >
                     إلغاء
                   </button>
-                  <LoadingButton
+                  <ModalSubmitButton
                     type="submit"
                     isLoading={isSubmittingReverse}
                     loadingText="جاري تثبيت العكس..."
                     className="px-5 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold shadow-lg"
                   >
                     تثبيت قيد العكس والموازنة
-                  </LoadingButton>
+                  </ModalSubmitButton>
                 </div>
               </form>
             </div>
-          </div>
+        </AppModal>
         )}
 
-        {isSuggestModalOpen && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+        <AppModal open={isSuggestModalOpen} zIndexClass="z-[60]">
             <div className="bg-white rounded-3xl max-w-md w-full p-6 border border-slate-100 shadow-2xl">
               <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                 <h3 className="text-base font-black text-slate-900">بنود مقترحة من تعاقد العميل</h3>
@@ -894,18 +894,18 @@ export default function StatementsPage() {
                 >
                   إلغاء
                 </button>
-                <button
+                <ModalSubmitButton
                   type="button"
-                  disabled={applyingPricing}
+                  isLoading={applyingPricing}
+                  loadingText="جاري الإدراج..."
                   onClick={confirmApplySuggestions}
-                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold disabled:opacity-60"
+                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold"
                 >
-                  {applyingPricing ? 'جاري الإدراج...' : 'تثبيت البنود في الكشف'}
-                </button>
+                  تثبيت البنود في الكشف
+                </ModalSubmitButton>
               </div>
             </div>
-          </div>
-        )}
+        </AppModal>
 
         {isSheetOpen && selectedStatement && (
           <ClientStatementSheet
