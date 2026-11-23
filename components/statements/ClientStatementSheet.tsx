@@ -414,7 +414,7 @@ export default function ClientStatementSheet({
           <div className="flex flex-wrap items-center justify-end gap-2">
             {onSuggestPricing && (
               <div className="flex items-center gap-1.5">
-                <select
+                {/* <select
                   value={transportUnitKey}
                   onChange={(e) => onTransportUnitChange?.(e.target.value)}
                   className="px-2 py-2 bg-slate-50 border border-slate-200 rounded-xl text-[11px] font-bold"
@@ -425,7 +425,7 @@ export default function ClientStatementSheet({
                   <option value="2x20ft">نقل: 2×20</option>
                   <option value="jumbo">نقل: جامبو</option>
                   <option value="tanker">نقل: دبابة</option>
-                </select>
+                </select> */}
                 <button
                   type="button"
                   disabled={applyingPricing}
