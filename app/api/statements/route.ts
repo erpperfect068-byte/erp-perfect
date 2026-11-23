@@ -2,7 +2,92 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAuthUser } from '@/lib/supabase-server';
 import { buildFxNotes, lineAmountInEgp, parseFxNotes } from '@/lib/statement-fx';
 
-// List Statements & Items
+const STATEMENT_DETAIL_SELECT =
+  'id, shipment_id, statement_date, currency, total_amount, created_at, company_id, shipment:shipments(id, client_id, client_item_id, invoice_number, supplier_name, bol_number, container_count, port_id, acid, declaration_number_46, arrival_date, document_receipt_date, client:clients(id, name, contact_person, tax_number), port:ports(id, name), clientItem:client_items(id, name)), items:statement_items(id, statement_id, client_item_id, item_type, description, amount, currency, exchange_rate_at_transaction, external_receipt_number, attachment_path, is_reversed, reversed_by_item_id, reversal_reason, notes, created_at, clientItem:client_items(id, name))';
+
+const STATEMENT_LIST_SELECT =
+  'id, shipment_id, statement_date, currency, total_amount, created_at, shipment:shipments(id, bol_number, declaration_number_46, client:clients(id, name))';
+
+function mapItems(rawItems: any[] | null | undefined) {
+  return (rawItems || []).map((item: any) => ({
+    id: item.id,
+    statementId: item.statement_id,
+    clientItemId: item.client_item_id || null,
+    clientItem: item.clientItem
+      ? { id: item.clientItem.id, name: item.clientItem.name }
+      : null,
+    itemType: item.item_type,
+    description: item.description,
+    amount: parseFloat(Number(item.amount || 0).toFixed(2)),
+    currency: item.currency || 'EGP',
+    exchangeRateAtTransaction: item.exchange_rate_at_transaction,
+    externalReceiptNumber: item.external_receipt_number,
+    attachmentPath: item.attachment_path,
+    isReversed: item.is_reversed || false,
+    reversedByItemId: item.reversed_by_item_id,
+    reversalReason: item.reversal_reason,
+    notes: item.notes || null,
+    fx: parseFxNotes(item.notes),
+    createdAt: item.created_at,
+  }));
+}
+
+function mapShipmentDetail(shipment: any | null) {
+  if (!shipment) return null;
+  return {
+    id: shipment.id,
+    clientId: shipment.client_id,
+    clientItemId: shipment.client_item_id || null,
+    invoiceNumber: shipment.invoice_number || null,
+    supplierName: shipment.supplier_name || null,
+    bolNumber: shipment.bol_number || null,
+    containerCount: shipment.container_count ?? null,
+    portId: shipment.port_id || null,
+    acid: shipment.acid || null,
+    declarationNumber46: shipment.declaration_number_46 || null,
+    arrivalDate: shipment.arrival_date || null,
+    documentReceiptDate: shipment.document_receipt_date || null,
+    port: shipment.port || null,
+    clientItem: shipment.clientItem
+      ? { id: shipment.clientItem.id, name: shipment.clientItem.name }
+      : null,
+  };
+}
+
+function mapClient(shipment: any | null) {
+  if (!shipment?.client) return null;
+  return {
+    id: shipment.client.id,
+    name: shipment.client.name,
+    contactPerson: shipment.client.contact_person || null,
+    taxNumber: shipment.client.tax_number || null,
+  };
+}
+
+async function resolveStatementNumbers(
+  supabase: any,
+  companyId: string | null,
+  ids: string[]
+): Promise<Map<string, number>> {
+  const numberById = new Map<string, number>();
+  if (!ids.length) return numberById;
+
+  let q = supabase
+    .from('statements')
+    .select('id, created_at')
+    .order('created_at', { ascending: true });
+  if (companyId) q = q.eq('company_id', companyId);
+
+  const { data } = await q;
+  (data || []).forEach((s: any, idx: number) => numberById.set(s.id, idx + 1));
+  return numberById;
+}
+
+/**
+ * GET /api/statements
+ * - No query: lightweight list for the statements table (no line items).
+ * - ?id=<uuid>: one statement invoice/sheet payload from statements + statement_items.
+ */
 export async function GET(req: NextRequest) {
   try {
     const { user, error, status, supabase } = await getAuthUser(req);
@@ -10,78 +95,29 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: error || 'غير مصرح' }, { status });
     }
 
-    const { data: statementsList, error: dbError } = await supabase
-      .from('statements')
-      .select(
-        '*, shipment:shipments(*, client:clients(*), port:ports(id, name), clientItem:client_items(id, name)), items:statement_items(*, clientItem:client_items(id, name))'
-      )
-      .eq('company_id', (user as any).company_id)
-      .order('created_at', { ascending: false });
+    const companyId = (user as any).company_id || null;
+    const statementId = req.nextUrl.searchParams.get('id');
 
-    if (dbError) throw dbError;
+    // ── One statement (invoice / كشف حساب sheet) ───────────────────────────
+    if (statementId) {
+      let detailQuery = supabase
+        .from('statements')
+        .select(STATEMENT_DETAIL_SELECT)
+        .eq('id', statementId);
+      if (companyId) detailQuery = detailQuery.eq('company_id', companyId);
 
-    // Assign stable human display numbers by chronological creation order
-    const chronoAsc = [...(statementsList || [])].sort(
-      (a: any, b: any) =>
-        new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()
-    );
-    const numberById = new Map<string, number>();
-    chronoAsc.forEach((s: any, idx: number) => numberById.set(s.id, idx + 1));
+      const { data: stmt, error: dbError } = await detailQuery.maybeSingle();
+      if (dbError) throw dbError;
+      if (!stmt) {
+        return NextResponse.json({ error: 'كشف الحساب غير موجود' }, { status: 404 });
+      }
 
-    const formattedStatements = (statementsList || []).map((stmt: any) => {
-      const shipment = stmt.shipment
-        ? {
-            ...stmt.shipment,
-            id: stmt.shipment.id,
-            clientId: stmt.shipment.client_id,
-            clientItemId: stmt.shipment.client_item_id || null,
-            invoiceNumber: stmt.shipment.invoice_number,
-            supplierName: stmt.shipment.supplier_name || null,
-            bolNumber: stmt.shipment.bol_number,
-            containerCount: stmt.shipment.container_count,
-            portId: stmt.shipment.port_id,
-            acid: stmt.shipment.acid,
-            declarationNumber46: stmt.shipment.declaration_number_46,
-            arrivalDate: stmt.shipment.arrival_date || null,
-            documentReceiptDate: stmt.shipment.document_receipt_date || null,
-            port: stmt.shipment.port || null,
-            clientItem: stmt.shipment.clientItem
-              ? { id: stmt.shipment.clientItem.id, name: stmt.shipment.clientItem.name }
-              : null,
-          }
-        : null;
+      const numberById = await resolveStatementNumbers(supabase, companyId, [stmt.id]);
+      const shipment = mapShipmentDetail(stmt.shipment);
+      const client = mapClient(stmt.shipment);
 
-      const client = stmt.shipment?.client
-        ? {
-            ...stmt.shipment.client,
-            contactPerson: stmt.shipment.client.contact_person,
-            taxNumber: stmt.shipment.client.tax_number,
-          }
-        : null;
-
-      const items = (stmt.items || []).map((item: any) => ({
-        ...item,
-        statementId: item.statement_id,
-        clientItemId: item.client_item_id || null,
-        clientItem: item.clientItem
-          ? { id: item.clientItem.id, name: item.clientItem.name }
-          : null,
-        itemType: item.item_type,
-        amount: parseFloat(Number(item.amount || 0).toFixed(2)),
-        currency: item.currency || 'EGP',
-        exchangeRateAtTransaction: item.exchange_rate_at_transaction,
-        externalReceiptNumber: item.external_receipt_number,
-        attachmentPath: item.attachment_path,
-        isReversed: item.is_reversed || false,
-        reversedByItemId: item.reversed_by_item_id,
-        reversalReason: item.reversal_reason,
-        notes: item.notes || null,
-        fx: parseFxNotes(item.notes),
-        createdAt: item.created_at,
-      }));
-
-      return {
-        ...stmt,
+      return NextResponse.json({
+        id: stmt.id,
         shipmentId: stmt.shipment_id,
         statementDate: stmt.statement_date,
         statementNumber: numberById.get(stmt.id) || null,
@@ -90,9 +126,46 @@ export async function GET(req: NextRequest) {
         createdAt: stmt.created_at,
         shipment,
         client,
-        items,
-      };
-    });
+        items: mapItems(stmt.items),
+      });
+    }
+
+    // ── Lightweight list (table rows only) ─────────────────────────────────
+    let listQuery = supabase
+      .from('statements')
+      .select(STATEMENT_LIST_SELECT)
+      .order('created_at', { ascending: false });
+    if (companyId) listQuery = listQuery.eq('company_id', companyId);
+
+    const { data: statementsList, error: dbError } = await listQuery;
+    if (dbError) throw dbError;
+
+    const numberById = await resolveStatementNumbers(
+      supabase,
+      companyId,
+      (statementsList || []).map((s: any) => s.id)
+    );
+
+    const formattedStatements = (statementsList || []).map((stmt: any) => ({
+      id: stmt.id,
+      shipmentId: stmt.shipment_id,
+      statementDate: stmt.statement_date,
+      statementNumber: numberById.get(stmt.id) || null,
+      totalAmount: parseFloat(Number(stmt.total_amount || 0).toFixed(2)),
+      currency: stmt.currency || 'EGP',
+      createdAt: stmt.created_at,
+      client: stmt.shipment?.client
+        ? { id: stmt.shipment.client.id, name: stmt.shipment.client.name }
+        : null,
+      shipment: stmt.shipment
+        ? {
+            id: stmt.shipment.id,
+            bolNumber: stmt.shipment.bol_number || null,
+            declarationNumber46: stmt.shipment.declaration_number_46 || null,
+          }
+        : null,
+      items: [] as any[],
+    }));
 
     return NextResponse.json(formattedStatements);
   } catch (error: any) {

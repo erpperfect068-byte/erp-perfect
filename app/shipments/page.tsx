@@ -22,7 +22,8 @@ import {
   FileText,
   Clock,
   Trash2,
-  Truck
+  Truck,
+  Loader2,
 } from 'lucide-react';
 
 interface Client {
@@ -96,6 +97,8 @@ export default function ShipmentsPage() {
   // New Shipment Form State
   const [selectedClientId, setSelectedClientId] = useState('');
   const [selectedClientItemId, setSelectedClientItemId] = useState('');
+  const [clientGoodsItems, setClientGoodsItems] = useState<Array<{ id: string; name: string }>>([]);
+  const [loadingClientItems, setLoadingClientItems] = useState(false);
   const [acid, setAcid] = useState('');
   const [declarationNumber46, setDeclarationNumber46] = useState('');
   const [containerCount, setContainerCount] = useState('');
@@ -155,6 +158,41 @@ export default function ShipmentsPage() {
     loadCoreData();
   }, [getAuthToken]);
 
+  async function loadClientGoodsItems(clientId: string) {
+    if (!clientId) {
+      setClientGoodsItems([]);
+      setLoadingClientItems(false);
+      return;
+    }
+
+    setLoadingClientItems(true);
+    setClientGoodsItems([]);
+    try {
+      const token = await getAuthToken();
+      const res = await fetch(`/api/clients/${clientId}/items`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        showToast('فشل تحميل أصناف العميل', 'error');
+        setClientGoodsItems([]);
+        return;
+      }
+      const items = await res.json();
+      setClientGoodsItems(
+        (Array.isArray(items) ? items : []).map((it: { id: string; name: string }) => ({
+          id: it.id,
+          name: it.name,
+        }))
+      );
+    } catch (err) {
+      console.error(err);
+      showToast('خطأ أثناء تحميل أصناف العميل', 'error');
+      setClientGoodsItems([]);
+    } finally {
+      setLoadingClientItems(false);
+    }
+  }
+
   const handleAddInvoiceRow = () => {
     setInvoices(prev => [...prev, { invoiceNumber: '', supplierName: '', amount: '', currency: 'USD' }]);
   };
@@ -212,6 +250,8 @@ export default function ShipmentsPage() {
         // Clear form
         setSelectedClientId('');
         setSelectedClientItemId('');
+        setClientGoodsItems([]);
+        setLoadingClientItems(false);
         setInvoices([{ invoiceNumber: '', supplierName: '', amount: '', currency: 'USD' }]);
         setAcid('');
         setDeclarationNumber46('');
@@ -285,8 +325,6 @@ export default function ShipmentsPage() {
     setUpdateNotes(shipment.notes || '');
     setIsUpdateStatusOpen(true);
   };
-
-  const selectedClientObject = clients.find(c => c.id === selectedClientId);
 
   const filteredShipments = shipments.filter((s) =>
     (s.client?.name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -490,8 +528,10 @@ export default function ShipmentsPage() {
                       required
                       value={selectedClientId}
                       onChange={(e) => {
-                        setSelectedClientId(e.target.value);
+                        const nextClientId = e.target.value;
+                        setSelectedClientId(nextClientId);
                         setSelectedClientItemId('');
+                        void loadClientGoodsItems(nextClientId);
                       }}
                       className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2"
                     >
@@ -502,20 +542,38 @@ export default function ShipmentsPage() {
                     </select>
                   </div>
 
-                  {/* Client Item select based on clients list */}
+                  {/* Client Item select — fresh from client detail API */}
                   <div className="space-y-1.5">
                     <label className="text-xs font-bold text-slate-700">نوع البضاعة (بأصناف العميل المخصصة)</label>
-                    <select
-                      value={selectedClientItemId}
-                      onChange={(e) => setSelectedClientItemId(e.target.value)}
-                      disabled={!selectedClientId}
-                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm disabled:opacity-50"
-                    >
-                      <option value="">-- اختر صنف مستورد مخصص --</option>
-                      {selectedClientObject?.items.map(item => (
-                        <option key={item.id} value={item.id}>{item.name}</option>
-                      ))}
-                    </select>
+                    <div className="relative">
+                      <select
+                        value={selectedClientItemId}
+                        onChange={(e) => setSelectedClientItemId(e.target.value)}
+                        disabled={!selectedClientId || loadingClientItems}
+                        className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm disabled:opacity-50"
+                      >
+                        <option value="">
+                          {!selectedClientId
+                            ? '-- اختر العميل أولاً --'
+                            : loadingClientItems
+                              ? 'جاري تحميل الأصناف...'
+                              : clientGoodsItems.length === 0
+                                ? 'لا توجد أصناف مسجلة لهذا العميل'
+                                : '-- اختر صنف مستورد مخصص --'}
+                        </option>
+                        {clientGoodsItems.map((item) => (
+                          <option key={item.id} value={item.id}>{item.name}</option>
+                        ))}
+                      </select>
+                      {loadingClientItems && (
+                        <Loader2 className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-indigo-500 animate-spin pointer-events-none" />
+                      )}
+                    </div>
+                    {selectedClientId && !loadingClientItems && clientGoodsItems.length === 0 && (
+                      <p className="text-[10px] text-amber-700 mt-1">
+                        لا توجد أصناف مسجلة لهذا العميل — أضف أصنافًا من صفحة العملاء.
+                      </p>
+                    )}
                   </div>
 
                   <div className="space-y-1.5">

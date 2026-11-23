@@ -146,6 +146,15 @@ export default function StatementsPage() {
   const [isSubmittingItem, setIsSubmittingItem] = useState(false);
   const [isSubmittingReverse, setIsSubmittingReverse] = useState(false);
 
+  async function loadStatementDetail(statementId: string): Promise<Statement | null> {
+    const token = await getAuthToken();
+    const res = await fetch(`/api/statements?id=${encodeURIComponent(statementId)}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as Statement;
+  }
+
   async function loadStatements() {
     setLoading(true);
     try {
@@ -156,10 +165,10 @@ export default function StatementsPage() {
       if (res.ok) {
         const data = await res.json();
         setStatements(data);
-        // Sync selected statement
-        if (selectedStatement) {
-          const fresh = data.find((s: Statement) => s.id === selectedStatement.id);
-          if (fresh) setSelectedStatement(fresh);
+        // If sheet is open, refresh that one row's full invoice payload from statements + items
+        if (selectedStatement && isSheetOpen) {
+          const detail = await loadStatementDetail(selectedStatement.id);
+          if (detail) setSelectedStatement(detail);
         }
       } else {
         showToast('فشل تحميل كشوفات الحساب المالي', 'error');
@@ -193,12 +202,22 @@ export default function StatementsPage() {
     setLoadingSheet(true);
     try {
       const token = await getAuthToken();
+
+      // Invoice / كشف data comes from statements (+ statement_items) via same GET route
+      const detail = await loadStatementDetail(target.id);
+      if (!detail) {
+        showToast('تعذر تحميل بيانات كشف الحساب', 'error');
+        setIsSheetOpen(false);
+        return;
+      }
+      setSelectedStatement(detail);
+
       const tasks: Promise<void>[] = [];
 
       tasks.push(
         (async () => {
           try {
-            const res = await fetch(`/api/deposits?statementId=${encodeURIComponent(target.id)}`, {
+            const res = await fetch(`/api/deposits?statementId=${encodeURIComponent(detail.id)}`, {
               headers: { Authorization: `Bearer ${token}` },
             });
             if (res.ok) {
@@ -220,10 +239,10 @@ export default function StatementsPage() {
         })()
       );
 
-      if (target.client?.id) {
+      if (detail.client?.id) {
         tasks.push(
           (async () => {
-            const res = await fetch(`/api/clients/${target.client!.id}`, {
+            const res = await fetch(`/api/clients/${detail.client!.id}`, {
               headers: { Authorization: `Bearer ${token}` },
             });
             if (res.ok) {

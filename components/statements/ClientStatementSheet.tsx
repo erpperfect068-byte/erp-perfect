@@ -541,7 +541,7 @@ export default function ClientStatementSheet({
                     placeholder="—"
                   />
                 </HeaderCell>
-                <HeaderCell label="نوع البضاعة">
+                {/* <HeaderCell label="نوع البضاعة">
                   {clientItems.length === 0 ? (
                     <span className="text-slate-400 font-normal">لا توجد أصناف</span>
                   ) : (
@@ -562,7 +562,7 @@ export default function ClientStatementSheet({
                       ))}
                     </div>
                   )}
-                </HeaderCell>
+                </HeaderCell> */}
                 <HeaderCell label="ميناء المغادرة">
                   <span className="text-slate-400 font-normal">—</span>
                 </HeaderCell>
