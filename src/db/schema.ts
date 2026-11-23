@@ -283,6 +283,7 @@ export const statementItems = pgTable('statement_items', {
   isReversed: boolean('is_reversed').notNull().default(false),
   reversedByItemId: uuid('reversed_by_item_id'), // Reference to the reversing item
   reversalReason: text('reversal_reason'),
+  notes: text('notes'), // optional JSON, e.g. FX conversion meta { fx: { convertedToEgp, sourceAmount, sourceCurrency } }
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   createdBy: uuid('created_by').references(() => users.id),

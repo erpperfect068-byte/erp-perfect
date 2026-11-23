@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { Coins, Printer, Plus, Undo2, X } from 'lucide-react';
+import { lineAmountInEgp, type StatementFxMeta } from '@/lib/statement-fx';
 
 export type SheetClientItem = { id: string; name: string };
 
@@ -15,6 +16,8 @@ export type SheetStatementItem = {
   externalReceiptNumber: string | null;
   isReversed: boolean;
   createdAt?: string;
+  notes?: string | null;
+  fx?: StatementFxMeta | null;
 };
 
 export type SheetDeposit = {
@@ -53,6 +56,9 @@ export type NewSheetItemPayload = {
   currency: string;
   exchangeRateAtTransaction: number;
   externalReceiptNumber?: string;
+  convertToEgp?: boolean;
+  sourceAmount?: number;
+  sourceCurrency?: string;
 };
 
 interface Props {
@@ -95,7 +101,117 @@ function toEgp(amount: number | string, rate: number | string) {
 function currencyMark(currency?: string) {
   if (currency === 'USD') return '$';
   if (currency === 'EUR') return '€';
-  return '';
+  if (currency === 'EGP') return 'ج.م';
+  return currency || 'ج.م';
+}
+
+function formatMoney(n: number, digits = 2) {
+  return n.toLocaleString('en-US', {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  });
+}
+
+/** Trim trailing zeros (48.50 → 48.5, 100.00 → 100). */
+function formatTrimmed(n: number, maxDigits = 4) {
+  if (!Number.isFinite(n)) return '0';
+  return String(parseFloat(n.toFixed(maxDigits)));
+}
+
+/** Currency mark in the currency column (ج.م when FX-converted). */
+function rowCurrencyMark(item: SheetStatementItem) {
+  if (item.fx?.convertedToEgp) return 'ج.م';
+  return currencyMark(item.currency);
+}
+
+function renderAmountCell(item: SheetStatementItem) {
+  const fx = item.fx;
+  const rate = Number(item.exchangeRateAtTransaction || 1);
+  const currency = (item.currency || 'EGP').toUpperCase();
+
+  // FX convert: EGP total on top; foreign amount + symbol × rate below
+  // New storage: amount is foreign. Legacy: amount is EGP, source in notes.
+  if (fx?.convertedToEgp) {
+    const isForeignStored = currency !== 'EGP';
+    const foreign = isForeignStored ? Number(item.amount || 0) : Number(fx.sourceAmount || 0);
+    const foreignCur = isForeignStored ? currency : String(fx.sourceCurrency || 'USD').toUpperCase();
+    const egp = isForeignStored ? foreign * rate : Number(item.amount || 0);
+    const foreignMark = currencyMark(foreignCur);
+
+    return (
+      <span dir="ltr" className="inline-block text-left">
+        <span className="block">{formatMoney(egp)}</span>
+        <span className="block text-[10px] font-semibold text-slate-500">
+          ({formatTrimmed(foreign)} {foreignMark} × {formatTrimmed(rate)})
+        </span>
+      </span>
+    );
+  }
+
+  // No FX: amount only — currency symbol lives in the currency column
+  return (
+    <span dir="ltr" className="inline-block text-left">
+      {formatMoney(Number(item.amount || 0))}
+    </span>
+  );
+}
+
+function normalizeReceipt(value?: string | null) {
+  const t = (value ?? '').trim();
+  return t.length ? t : null;
+}
+
+/**
+ * Merge ALL rows sharing the same non-empty receipt (anywhere in the list).
+ * span>0 on first occurrence = total count; 0 on later rows with that receipt; empty → 1.
+ * Callers should pass items already grouped so same receipts are contiguous (HTML rowspan).
+ */
+function receiptRowSpans(items: SheetStatementItem[]): number[] {
+  const counts = new Map<string, number>();
+  for (const item of items) {
+    const key = normalizeReceipt(item.externalReceiptNumber);
+    if (!key) continue;
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+
+  const seen = new Set<string>();
+  return items.map((item) => {
+    const key = normalizeReceipt(item.externalReceiptNumber);
+    if (!key) return 1;
+    if (seen.has(key)) return 0;
+    seen.add(key);
+    return counts.get(key) || 1;
+  });
+}
+
+/** Oldest→newest, then pull every later row with the same receipt next to its first appearance. */
+function groupItemsByReceipt(items: SheetStatementItem[]): SheetStatementItem[] {
+  const chronological = [...items].sort((a, b) => {
+    const ta = new Date(a.createdAt || 0).getTime();
+    const tb = new Date(b.createdAt || 0).getTime();
+    return ta - tb;
+  });
+  const used = new Set<string>();
+  const result: SheetStatementItem[] = [];
+
+  for (const item of chronological) {
+    if (used.has(item.id)) continue;
+    const key = normalizeReceipt(item.externalReceiptNumber);
+    if (!key) {
+      result.push(item);
+      used.add(item.id);
+      continue;
+    }
+    for (const other of chronological) {
+      if (used.has(other.id)) continue;
+      if (normalizeReceipt(other.externalReceiptNumber) === key) {
+        result.push(other);
+        used.add(other.id);
+      }
+    }
+  }
+
+  return result;
 }
 
 function HeaderCell({
@@ -151,6 +267,8 @@ export default function ClientStatementSheet({
   const [draftRate, setDraftRate] = useState('1');
   const [draftReceipt, setDraftReceipt] = useState('');
   const [draftType, setDraftType] = useState<'expense' | 'fee' | 'deposit_deduction'>('expense');
+  /** When foreign currency: false = keep as-is; true = enter EGP + rate. */
+  const [draftConvertToEgp, setDraftConvertToEgp] = useState(false);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -163,26 +281,43 @@ export default function ClientStatementSheet({
   }, [usdRate, eurRate]);
 
   useEffect(() => {
-    if (draftCurrency === 'EGP') setDraftRate('1');
-    else if (draftCurrency === 'USD') setDraftRate(localUsd || '48.5');
+    if (draftCurrency === 'EGP') {
+      setDraftRate('1');
+      setDraftConvertToEgp(false);
+    } else if (draftCurrency === 'USD') setDraftRate(localUsd || '48.5');
     else if (draftCurrency === 'EUR') setDraftRate(localEur || '52.3');
   }, [draftCurrency, localUsd, localEur]);
 
+  const draftRateNum = Number(draftRate) || 0;
+  const draftAmountNum = Number(draftAmount) || 0;
+  /** Convert mode: amount field is foreign; EGP = foreign × rate. */
+  const draftEgpFromForeign =
+    draftConvertToEgp && draftRateNum > 0 ? draftAmountNum * draftRateNum : 0;
+
   const visibleItems = useMemo(
-    () =>
-      [...(statement.items || [])].sort((a, b) => {
-        const ta = new Date(a.createdAt || 0).getTime();
-        const tb = new Date(b.createdAt || 0).getTime();
-        return ta - tb;
-      }),
+    () => groupItemsByReceipt(statement.items || []),
     [statement.items]
   );
+
+  const receiptSpans = useMemo(() => receiptRowSpans(visibleItems), [visibleItems]);
+
+  const existingReceiptOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const options: string[] = [];
+    for (const item of statement.items || []) {
+      const key = normalizeReceipt(item.externalReceiptNumber);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      options.push(key);
+    }
+    return options;
+  }, [statement.items]);
 
   const expensesTotal = useMemo(() => {
     return visibleItems.reduce((sum, item) => {
       if (item.isReversed) return sum;
       if (item.itemType !== 'expense' && item.itemType !== 'fee') return sum;
-      return sum + toEgp(item.amount, item.exchangeRateAtTransaction);
+      return sum + lineAmountInEgp(item.amount, item.currency, item.exchangeRateAtTransaction);
     }, 0);
   }, [visibleItems]);
 
@@ -197,7 +332,10 @@ export default function ClientStatementSheet({
     return visibleItems.reduce((sum, item) => {
       if (item.isReversed) return sum;
       if (item.itemType !== 'deposit_deduction') return sum;
-      return sum + Math.abs(toEgp(item.amount, item.exchangeRateAtTransaction));
+      return (
+        sum +
+        Math.abs(lineAmountInEgp(item.amount, item.currency, item.exchangeRateAtTransaction))
+      );
     }, 0);
   }, [visibleItems]);
 
@@ -232,15 +370,31 @@ export default function ClientStatementSheet({
       showToast('أدخل مبلغًا صحيحًا', 'warning');
       return;
     }
+
+    const isForeign = draftCurrency !== 'EGP';
+    const convert = isForeign && draftConvertToEgp;
+    if (convert && (!(Number(draftRate) > 0))) {
+      showToast('أدخل سعر صرف صالح للتحويل', 'warning');
+      return;
+    }
+
+    const rate = convert ? Number(draftRate) : 1;
+    const enteredAmount = Number(draftAmount);
+    // Always store the entered amount in the selected currency (USD/EUR/EGP).
+    // Convert mode only attaches FX rate + display meta; totals use amount × rate.
+
     setSaving(true);
     try {
       const ok = await onAddItem({
         itemType: draftType,
         description: draftDesc.trim(),
-        amount: Number(draftAmount),
+        amount: enteredAmount,
         currency: draftCurrency,
-        exchangeRateAtTransaction: Number(draftRate) || 1,
+        exchangeRateAtTransaction: rate,
         externalReceiptNumber: draftReceipt.trim() || undefined,
+        convertToEgp: convert || undefined,
+        sourceAmount: convert ? parseFloat(enteredAmount.toFixed(4)) : undefined,
+        sourceCurrency: convert ? draftCurrency : undefined,
       });
       if (ok) {
         setDraftDesc('');
@@ -248,6 +402,7 @@ export default function ClientStatementSheet({
         setDraftReceipt('');
         setDraftType('expense');
         setDraftCurrency('EGP');
+        setDraftConvertToEgp(false);
       }
     } finally {
       setSaving(false);
@@ -312,7 +467,7 @@ export default function ClientStatementSheet({
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 print:overflow-visible print:p-2" id="client-statement-print-root">
+        <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 print:overflow-visible print:p-2" id="client-statement-print-root">
           <h2 className="text-center text-xl sm:text-2xl font-black text-slate-900 mb-4 tracking-wide">
             كشف حساب تخليص
           </h2>
@@ -428,8 +583,8 @@ export default function ClientStatementSheet({
                 <th className="border border-slate-800 px-2 py-2 text-[11px] font-bold">
                   الوصف
                 </th>
-                <th className="border border-slate-800 px-2 py-2 text-[11px] font-bold w-10">
-                  $/€
+                <th className="border border-slate-800 px-2 py-2 text-[11px] font-bold w-12">
+                  العملة
                 </th>
                 <th className="border border-slate-800 px-2 py-2 text-[11px] font-bold w-28">
                   المبلغ
@@ -455,53 +610,58 @@ export default function ClientStatementSheet({
                   </td>
                 </tr>
               ) : (
-                visibleItems.map((item, idx) => (
-                  <tr
-                    key={item.id}
-                    className={item.isReversed || item.itemType === 'reversal' ? 'opacity-50' : ''}
-                  >
-                    <td className="border border-slate-800 px-2 py-1.5 text-center text-[11px] font-mono">
-                      {idx + 1}
-                    </td>
-                    <td className="border border-slate-800 px-2 py-1.5 text-[11px] font-semibold text-slate-800">
-                      {item.description}
-                      {item.itemType === 'deposit_deduction' && (
-                        <span className="text-[10px] text-blue-600 mr-1">(خصم أمانة)</span>
-                      )}
-                      {item.isReversed && (
-                        <span className="text-[10px] text-rose-600 mr-1">(معكوس)</span>
-                      )}
-                    </td>
-                    <td className="border border-slate-800 px-2 py-1.5 text-center text-[11px] font-mono">
-                      {currencyMark(item.currency)}
-                    </td>
-                    <td className="border border-slate-800 px-2 py-1.5 text-left font-mono text-[11px] font-bold">
-                      {Number(item.amount).toLocaleString('en-US', {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}
-                    </td>
-                    <td className="border border-slate-800 px-2 py-1.5 text-center text-[11px] font-mono">
-                      {item.externalReceiptNumber || '—'}
-                    </td>
-                    {onReverseItem && (
-                      <td className="border border-slate-800 px-1 py-1 text-center print:hidden">
-                        {!item.isReversed && item.itemType !== 'reversal' ? (
-                          <button
-                            type="button"
-                            onClick={() => onReverseItem(item)}
-                            className="p-1.5 text-slate-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg"
-                            title="عكس القيد"
-                          >
-                            <Undo2 className="h-3.5 w-3.5" />
-                          </button>
-                        ) : (
-                          <span className="text-slate-300">—</span>
+                visibleItems.map((item, idx) => {
+                  const receiptSpan = receiptSpans[idx];
+                  return (
+                    <tr
+                      key={item.id}
+                      className={item.isReversed || item.itemType === 'reversal' ? 'opacity-50' : ''}
+                    >
+                      <td className="border border-slate-800 px-2 py-1.5 text-center text-[11px] font-mono">
+                        {idx + 1}
+                      </td>
+                      <td className="border border-slate-800 px-2 py-1.5 text-[11px] font-semibold text-slate-800">
+                        {item.description}
+                        {item.itemType === 'deposit_deduction' && (
+                          <span className="text-[10px] text-blue-600 mr-1">(خصم أمانة)</span>
+                        )}
+                        {item.isReversed && (
+                          <span className="text-[10px] text-rose-600 mr-1">(معكوس)</span>
                         )}
                       </td>
-                    )}
-                  </tr>
-                ))
+                      <td className="border border-slate-800 px-2 py-1.5 text-center text-[11px] font-mono">
+                        {rowCurrencyMark(item)}
+                      </td>
+                      <td className="border border-slate-800 px-2 py-1.5 text-left font-mono text-[11px] font-bold">
+                        {renderAmountCell(item)}
+                      </td>
+                      {receiptSpan > 0 && (
+                        <td
+                          rowSpan={receiptSpan}
+                          className="border border-slate-800 px-2 py-1.5 text-center text-[11px] font-mono align-middle"
+                        >
+                          {normalizeReceipt(item.externalReceiptNumber) || '—'}
+                        </td>
+                      )}
+                      {onReverseItem && (
+                        <td className="border border-slate-800 px-1 py-1 text-center print:hidden">
+                          {!item.isReversed && item.itemType !== 'reversal' ? (
+                            <button
+                              type="button"
+                              onClick={() => onReverseItem(item)}
+                              className="p-1.5 text-slate-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg"
+                              title="عكس القيد"
+                            >
+                              <Undo2 className="h-3.5 w-3.5" />
+                            </button>
+                          ) : (
+                            <span className="text-slate-300">—</span>
+                          )}
+                        </td>
+                      )}
+                    </tr>
+                  );
+                })
               )}
 
               {/* Static footer totals rows */}
@@ -568,10 +728,12 @@ export default function ClientStatementSheet({
               </span>
             </div>
           </div>
+        </div>
 
-          {/* Add item — screen only */}
-          {canAddItems && onAddItem && (
-            <div className="mt-6 border border-dashed border-slate-300 rounded-2xl p-4 space-y-3 print:hidden">
+        {/* Add item — pinned below scroll area (screen only) */}
+        {canAddItems && onAddItem && (
+          <div className="shrink-0 border-t border-slate-200 bg-white px-4 sm:px-6 py-3 print:hidden">
+            <div className="border border-dashed border-slate-300 rounded-2xl p-4 space-y-3">
               <p className="text-xs font-bold text-slate-700">إضافة بند جديد للكشف</p>
               <div className="grid grid-cols-1 sm:grid-cols-6 gap-2">
                 <select
@@ -597,7 +759,11 @@ export default function ClientStatementSheet({
                   step="0.01"
                   value={draftAmount}
                   onChange={(e) => setDraftAmount(e.target.value)}
-                  placeholder="المبلغ"
+                  placeholder={
+                    draftCurrency !== 'EGP' && draftConvertToEgp
+                      ? `المبلغ بـ ${draftCurrency}`
+                      : 'المبلغ'
+                  }
                   className="sm:col-span-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono"
                 />
                 <select
@@ -611,22 +777,64 @@ export default function ClientStatementSheet({
                 </select>
                 <input
                   type="text"
+                  list="client-statement-receipt-options"
                   value={draftReceipt}
                   onChange={(e) => setDraftReceipt(e.target.value)}
                   placeholder="رقم الإيصال"
                   className="sm:col-span-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono"
+                  autoComplete="off"
                 />
               </div>
+              <datalist id="client-statement-receipt-options">
+                {existingReceiptOptions.map((receipt) => (
+                  <option key={receipt} value={receipt} />
+                ))}
+              </datalist>
               {draftCurrency !== 'EGP' && (
-                <div className="flex items-center gap-2">
-                  <label className="text-[10px] font-bold text-slate-500">سعر الصرف</label>
-                  <input
-                    type="number"
-                    step="0.0001"
-                    value={draftRate}
-                    onChange={(e) => setDraftRate(e.target.value)}
-                    className="w-32 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono"
-                  />
+                <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50/80 p-3">
+                  <p className="text-[10px] font-bold text-slate-600">التعامل مع العملة الأجنبية</p>
+                  <div className="flex flex-wrap gap-3 text-[11px] font-bold text-slate-800">
+                    <label className="inline-flex items-center gap-1.5 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="fx-mode"
+                        checked={!draftConvertToEgp}
+                        onChange={() => setDraftConvertToEgp(false)}
+                        className="accent-indigo-600"
+                      />
+                      بدون تحويل — يُحفظ ويُعرض بـ {draftCurrency}
+                    </label>
+                    <label className="inline-flex items-center gap-1.5 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="fx-mode"
+                        checked={draftConvertToEgp}
+                        onChange={() => setDraftConvertToEgp(true)}
+                        className="accent-indigo-600"
+                      />
+                      تحويل إلى جنيه مصري
+                    </label>
+                  </div>
+                  {draftConvertToEgp && (
+                    <div className="flex flex-wrap items-center gap-3">
+                      <div className="flex items-center gap-2">
+                        <label className="text-[10px] font-bold text-slate-500">سعر الصرف</label>
+                        <input
+                          type="number"
+                          step="0.0001"
+                          value={draftRate}
+                          onChange={(e) => setDraftRate(e.target.value)}
+                          className="w-32 px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-mono"
+                        />
+                      </div>
+                      {draftAmountNum > 0 && draftRateNum > 0 && (
+                        <span className="text-[10px] font-semibold text-slate-600 font-mono" dir="ltr">
+                          = {formatMoney(draftEgpFromForeign)} ج.م{' '}
+                          ({formatTrimmed(draftAmountNum)} × {formatTrimmed(draftRateNum)})
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
               <button
@@ -639,8 +847,8 @@ export default function ClientStatementSheet({
                 {saving ? 'جاري الحفظ...' : 'إضافة البند'}
               </button>
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       <style>{`

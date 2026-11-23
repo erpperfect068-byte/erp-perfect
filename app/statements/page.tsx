@@ -81,6 +81,12 @@ interface StatementItem {
   createdAt: string;
   clientItemId?: string | null;
   clientItem?: ClientGoodsItem | null;
+  notes?: string | null;
+  fx?: {
+    convertedToEgp: boolean;
+    sourceAmount: number;
+    sourceCurrency: string;
+  } | null;
 }
 
 interface Statement {
@@ -247,6 +253,9 @@ export default function StatementsPage() {
     currency: string;
     exchangeRateAtTransaction: number;
     externalReceiptNumber?: string;
+    convertToEgp?: boolean;
+    sourceAmount?: number;
+    sourceCurrency?: string;
   }) => {
     if (!selectedStatement) return false;
     try {

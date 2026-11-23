@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthUser } from '@/lib/supabase-server';
+import { buildFxNotes, lineAmountInEgp, parseFxNotes } from '@/lib/statement-fx';
 
 // List Statements & Items
 export async function GET(req: NextRequest) {
@@ -74,6 +75,8 @@ export async function GET(req: NextRequest) {
         isReversed: item.is_reversed || false,
         reversedByItemId: item.reversed_by_item_id,
         reversalReason: item.reversal_reason,
+        notes: item.notes || null,
+        fx: parseFxNotes(item.notes),
         createdAt: item.created_at,
       }));
 
@@ -120,6 +123,10 @@ export async function POST(req: NextRequest) {
       originalItemId,
       reversalReason,
       clientItemId,
+      convertToEgp = false,
+      sourceAmount,
+      sourceCurrency,
+      notes: notesFromBody,
     } = body;
 
     if (!statementId) {
@@ -175,6 +182,7 @@ export async function POST(req: NextRequest) {
           currency: originalItem.currency,
           exchange_rate_at_transaction: originalItem.exchange_rate_at_transaction,
           external_receipt_number: originalItem.external_receipt_number,
+          notes: originalItem.notes || null,
           reversal_reason: reversalReason || 'إلغاء/تعديل محاسبي',
           created_by: user.id,
         })
@@ -253,6 +261,36 @@ export async function POST(req: NextRequest) {
       const numAmount = parseFloat(Number(amount).toFixed(2));
       const numRate = parseFloat(Number(exchangeRateAtTransaction).toFixed(4));
 
+      let notesValue: string | null =
+        typeof notesFromBody === 'string' && notesFromBody.trim()
+          ? notesFromBody.trim()
+          : null;
+
+      if (convertToEgp) {
+        // amount is the foreign value; currency must be USD/EUR (not pre-converted EGP)
+        const srcCur = String(sourceCurrency || currency || '')
+          .trim()
+          .toUpperCase();
+        const srcAmt = parseFloat(Number(sourceAmount ?? amount ?? 0).toFixed(4));
+        if (!srcCur || srcCur === 'EGP' || !(srcAmt > 0) || !(numRate > 0)) {
+          return NextResponse.json(
+            { error: 'تحويل للجنيه يتطلب عملة أجنبية ومبلغًا أصليًا وسعر صرف صالح' },
+            { status: 400 }
+          );
+        }
+        if (String(currency || '').trim().toUpperCase() === 'EGP') {
+          return NextResponse.json(
+            { error: 'عند التحويل يُحفظ المبلغ بالعملة الأجنبية (USD/EUR) وليس بالجنيه' },
+            { status: 400 }
+          );
+        }
+        notesValue = buildFxNotes({
+          convertedToEgp: true,
+          sourceAmount: srcAmt,
+          sourceCurrency: srcCur,
+        });
+      }
+
       const { data: newItem, error: insertErr } = await supabase
         .from('statement_items')
         .insert({
@@ -267,6 +305,7 @@ export async function POST(req: NextRequest) {
           external_receipt_number: externalReceiptNumber || null,
           attachment_path: attachmentPath || null,
           percentage: percentage ? parseFloat(percentage) : null,
+          notes: notesValue,
           created_by: user.id,
         })
         .select('*, clientItem:client_items(id, name)')
@@ -293,17 +332,19 @@ export async function POST(req: NextRequest) {
       finalItem = newItem;
     }
 
-    // Re-calculate Statement total Amount
+    // Re-calculate Statement total Amount (EGP rows already in EGP; others × rate)
     const { data: allItems } = await supabase
       .from('statement_items')
-      .select('amount, exchange_rate_at_transaction')
+      .select('amount, currency, exchange_rate_at_transaction')
       .eq('statement_id', statementId);
 
     let newTotal = 0;
     (allItems || []).forEach((it: any) => {
-      const a = Number(it.amount || 0);
-      const r = Number(it.exchange_rate_at_transaction || 1);
-      newTotal += a * r;
+      newTotal += lineAmountInEgp(
+        it.amount,
+        it.currency,
+        it.exchange_rate_at_transaction
+      );
     });
 
     await supabase
@@ -325,10 +366,13 @@ export async function POST(req: NextRequest) {
       itemType: finalItem.item_type,
       amount: parseFloat(Number(finalItem.amount || 0).toFixed(2)),
       currency: finalItem.currency || 'EGP',
+      exchangeRateAtTransaction: finalItem.exchange_rate_at_transaction,
       externalReceiptNumber: finalItem.external_receipt_number,
       attachmentPath: finalItem.attachment_path,
       isReversed: finalItem.is_reversed || false,
       reversedByItemId: finalItem.reversed_by_item_id,
+      notes: finalItem.notes || null,
+      fx: parseFxNotes(finalItem.notes),
       createdAt: finalItem.created_at,
     };
 
